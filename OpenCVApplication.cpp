@@ -1,4 +1,4 @@
-﻿// OpenCVApplication.cpp : Defines the entry point for the console application.
+// OpenCVApplication.cpp : Defines the entry point for the console application.
 //
 
 #include "stdafx.h"
@@ -796,56 +796,6 @@ float* computePDF(Mat image) {
 	return pdf;
 }
 
-// Implement the multilevel thresholding algorithm. 
-vector<int> getLocalMaxima(Mat img, int WH, double TH) {
-	double v;
-	vector<int> vecMax;
-	int height = img.rows;
-	int width = img.cols;
-	float* pdf = computePDF(img);
-	vecMax.push_back(0);
-
-	for (int k = WH; k <= 255 - WH; k++) {
-		double v = 0;
-		for (int i = k - WH; i <= k + WH; i++) 
-			v += pdf[i];
-		v = v / (2 * WH + 1);
-		if (pdf[k] > v + TH) {
-			for (int j = k - WH; j <= k + WH; j++)
-				if (pdf[k] >= pdf[j])
-					vecMax.push_back(k);
-		}
-	}
-	vecMax.push_back(255);
-
-	return vecMax;
-}
-
-Mat multilevelThresholding(Mat img, int WH, double TH)
-{
-	vector<int> vecMax = getLocalMaxima(img, WH, TH);
-
-	Mat image = Mat(img.rows, img.cols, CV_8UC1);
-
-	for (int i = 0; i < img.rows; i++)
-		for (int j = 0; j < img.cols; j++)
-		{
-			int closest = 0, smallest = 256;
-			for (int i : vecMax) {
-				int difference = abs(img.at<uchar>(i, j) - i);
-				if (difference <= smallest)
-				{
-					smallest = difference;
-					closest = i;
-				}
-			}
-			image.at<uchar>(i, j) = closest;
-		}
-	return image;
-}
-
-
-
 /* Histogram display function - display a histogram using bars (simlilar to L3 / Image Processing)
 Input:
 name - destination (output) window name
@@ -875,6 +825,173 @@ void showHistogram(const std::string& name, int* hist, const int  hist_cols, con
 	}
 
 	imshow(name, imgHist);
+}
+
+void MultilevelThresholding() {
+	char fname[MAX_PATH];
+
+	while (openFileDlg(fname))
+	{
+		double t = (double)getTickCount(); // Get the current time [s]
+
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		Mat dst = Mat(src.rows, src.cols, CV_8UC1);
+
+		int* hist = (int*)(calloc(256, sizeof(int)));
+		float* fdp = (float*)(calloc(256, sizeof(float)));
+
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				hist[src.at<uchar>(i, j)]++;
+			}
+		}
+
+		for (int i = 0; i < 256; i++) {
+			fdp[i] = (float)hist[i] / (src.rows * src.cols);
+		}
+
+		int w = 5;
+		float th = 0.0003;
+		int nrSteps = 2;
+
+		std::vector<int> steps;
+		steps.push_back(0);
+
+		for (int i = w; i < 255 - w; i++) {
+			float v = 0;
+			int ok = 1;
+			for (int k = i - w; k <= i + w; k++) {
+				if (fdp[i] < fdp[k]) {
+					ok = 0;
+				}
+				v = v + fdp[k];
+			}
+			v = v / (2 * w + 1);
+			if (ok == 1 && fdp[i] > v + th) {
+				steps.push_back(i);
+				nrSteps++;
+			}
+		}
+
+		steps.push_back(255);
+
+		for (int i = 0; i < nrSteps; i++) {
+			std::cout << steps[i] << " ";
+
+		}
+
+		int min = 0;
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				min = abs(src.at<uchar>(i, j) - steps[0]);
+				int step = 0;
+				for (int k = 1; k < nrSteps; k++) {
+					if (min > abs(src.at<uchar>(i, j) - steps[k])) {
+						min = abs(src.at<uchar>(i, j) - steps[k]);
+						step = steps[k];
+					}
+				}
+				dst.at<uchar>(i, j) = step;
+
+			}
+		}
+
+		imshow("input image", src);
+		imshow("after multi-level thresholding", dst);
+		showHistogram("Histogram", computeHistogram(dst), 256, 200);
+
+		waitKey();
+	}
+}
+
+void FloydSteinberg() {
+	char fname[MAX_PATH];
+
+	while (openFileDlg(fname))
+	{
+		double t = (double)getTickCount(); // Get the current time [s]
+
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		Mat dst = Mat(src.rows, src.cols, CV_8UC1);
+		Mat dstTemp = Mat(src.rows, src.cols, CV_32FC1);
+
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				dstTemp.at<float>(i, j) = (float)src.at<uchar>(i, j);
+			}
+		}
+
+		int* hist = (int*)(calloc(256, sizeof(int)));
+		float* pdf = (float*)(calloc(256, sizeof(float)));
+
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				hist[src.at<uchar>(i, j)]++;
+			}
+		}
+
+		for (int i = 0; i < 256; i++) {
+			pdf[i] = (float)hist[i] / (src.rows * src.cols);
+		}
+
+		int w = 5;
+		float th = 0.0003;
+		int nrSteps = 2;
+		std::vector<int> steps;
+		steps.push_back(0);
+
+		for (int i = w; i < 255 - w; i++) {
+			float v = 0;
+			int ok = 1;
+			for (int k = i - w; k <= i + w; k++) {
+				if (pdf[i] < pdf[k]) {
+					ok = 0;
+				}
+				v = v + pdf[k];
+			}
+			v = v / (2 * w + 1);
+			if (ok == 1 && pdf[i] > v + th) {
+				steps.push_back(i);
+				nrSteps++;
+			}
+		}
+
+		steps.push_back(255);
+
+		for (int i = 0; i < nrSteps; i++) {
+			std::cout << steps[i] << " ";
+
+		}
+
+		int min = 0;
+		for (int i = 1; i < src.rows - 1; i++) {
+			for (int j = 1; j < src.cols - 1; j++) {
+				min = abs(dstTemp.at<float>(i, j) - steps[0]);
+				int step = 0;
+				for (int k = 1; k < nrSteps; k++) {
+					if (min > abs(dstTemp.at<float>(i, j) - steps[k])) {
+						min = abs(dstTemp.at<float>(i, j) - steps[k]);
+						step = steps[k];
+					}
+				}
+
+				dst.at<uchar>(i, j) = step;
+				float error = dstTemp.at<float>(i, j) - step;
+				dstTemp.at<float>(i, j) = step;
+
+				dstTemp.at<float>(i, j + 1) = dstTemp.at<float>(i, j + 1) + 7 * error / 16;
+				dstTemp.at<float>(i + 1, j - 1) = dstTemp.at<float>(i + 1, j - 1) + 3 * error / 16;
+				dstTemp.at<float>(i + 1, j) = dstTemp.at<float>(i + 1, j) + 5 * error / 16;
+				dstTemp.at<float>(i + 1, j + 1) = dstTemp.at<float>(i + 1, j + 1) + error / 16;
+			}
+		}
+
+		imshow("input image", src);
+		imshow("after Floyd Steinberg dithering", dst);
+		//showHistogram("Histogram", computeHistogram(dst), 256, 200);
+
+		waitKey();
+	}
 }
 
 int main() 
@@ -912,6 +1029,8 @@ int main()
 		printf(" 22 - Display reduced histogram\n");
 		printf(" 23 - Compute PDF\n");
 		printf(" 24 - Multi-level thresholding\n");
+		printf(" 25 - Floyd Steinberg dithering\n");
+
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d",&op);
@@ -1002,20 +1121,20 @@ int main()
 				waitKey(0);
 				break;
 			case 23:
-				float sum = 0.0;
+				/*float sum = 0.0;
 				float* pdf = computePDF(imread("Images/cameraman.bmp", IMREAD_GRAYSCALE));
 				for (int i = 0; i < 256; i++) {
 					printf("PDF[%d] = %f\n", i, pdf[i]);
 					sum += pdf[i];
 				}
 				printf("Sum of PDF values: %f\n", sum);
-				waitKey(3000);
+				waitKey(3000);*/
 				break;
 			case 24:
-				Mat img = imread("Images/cameraman.bmp", IMREAD_GRAYSCALE);
-				Mat result = multilevelThresholding(img, 5, 0.0003);
-				imshow("Multilevel thresholding", result);
-				waitKey(0);
+				MultilevelThresholding();
+				break;
+			case 25: 				
+				FloydSteinberg();
 				break;
 		}
 	}
