@@ -1,4 +1,4 @@
-// OpenCVApplication.cpp : Defines the entry point for the console application.
+i// OpenCVApplication.cpp : Defines the entry point for the console application.
 //
 
 #include "stdafx.h"
@@ -709,18 +709,266 @@ void testSnap()
 
 }
 
+int get_object_area(Mat* img, uchar R, uchar G, uchar B) {
+	int area = 0;
+	for (int i = 0; i < (*img).rows; i++)
+		for (int j = 0; j < (*img).cols; j++)
+			if ((*img).at<Vec3b>(i, j)[2] == R && (*img).at<Vec3b>(i, j)[1] == G && (*img).at<Vec3b>(i, j)[0] == B)
+				area++;
+	return area;
+}
+
+int* get_object_center_of_mass(Mat* img, uchar R, uchar G, uchar B, Mat dst) {
+	int area = get_object_area(img, R, G, B);
+	static int center[2] = { 0, 0 };
+
+	if (area == 0) {
+		return center;
+	}
+
+	for (int i = 0; i < (*img).rows; i++)
+		for (int j = 0; j < (*img).cols; j++)
+			if ((*img).at<Vec3b>(i, j)[2] == R && (*img).at<Vec3b>(i, j)[1] == G && (*img).at<Vec3b>(i, j)[0] == B) {
+				center[0] += i;
+				center[1] += j;
+			}
+
+	center[0] /= area;
+	center[1] /= area;
+
+	return center;
+}
+
+double get_axis_of_elongation(Mat* img, uchar R, uchar G, uchar B, Mat dst) {
+	int* center_of_mass = get_object_center_of_mass(img, R, G, B, dst);
+	int center_row = center_of_mass[0];
+	int center_col = center_of_mass[1];
+	double numerator = 0, denominator = 0;
+	double phi = 0, deg = 0;
+
+	for (int i = 0; i < (*img).rows; i++)
+		for (int j = 0; j < (*img).cols; j++)
+			if ((*img).at<Vec3b>(i, j)[2] == R && (*img).at<Vec3b>(i, j)[1] == G && (*img).at<Vec3b>(i, j)[0] == B) {
+				numerator += (i - center_row) * (j - center_col);
+				denominator += pow(j - center_col, 2) - pow(i - center_row, 2);
+			}
+	numerator *= 2;
+	phi = atan2(numerator, denominator) / 2;
+	deg = phi * 180.0 / PI;
+	if (deg < 0) deg += 180.0;
+
+
+	int lineLength = 30;
+
+	Point center(center_col, center_row);
+	circle(dst, center, 5, Scalar(255, 255, 255), -1);
+
+	Point p1(center_col + (int)(lineLength * cos(phi)),
+		center_row + (int)(lineLength * sin(phi)));
+	Point p2(center_col - (int)(lineLength * cos(phi)),
+		center_row - (int)(lineLength * sin(phi)));
+
+	line(dst, p1, p2, Vec3b(0, 0, 0), 2);
+
+	return deg;
+}
+
+bool is_background(Mat* img, int i, int j) {
+	// First check if coordinates are valid
+	if (i < 0 || i >= (*img).rows || j < 0 || j >= (*img).cols)
+		return true; // Treat out-of-bounds as background
+
+	Vec3b pixel = (*img).at<Vec3b>(i, j);
+	return (pixel[2] == 255 && pixel[1] == 255 && pixel[0] == 255);
+}
+
+
+
+int get_perimeter(Mat* img, uchar R, uchar G, uchar  B, Mat dst) {
+	Mat newimg = (*img).clone();
+	int perimeter = 0;
+	for (int i = 0; i < (*img).rows; i++)
+		for (int j = 0; j < (*img).cols; j++)
+			if ((*img).at<Vec3b>(i, j)[2] == R && (*img).at<Vec3b>(i, j)[1] == G && (*img).at<Vec3b>(i, j)[0] == B) {
+				if (is_background(img, i-1, j-1) ||
+					is_background(img, i-1, j) ||
+					is_background(img, i-1, j+1) ||
+					is_background(img, i, j-1) ||
+					is_background(img, i, j+1) ||
+					is_background(img, i+1, j-1) ||
+					is_background(img, i+1, j) ||
+					is_background(img, i+1, j+1)) {
+					perimeter++;
+					line(dst, Point(j, i), Point(j, i), Vec3b(0, 0, 0), 2);
+				}
+			}
+	return perimeter * PI / 4;
+}
+
+double get_thinness_ratio(Mat* img, uchar R, uchar G, uchar B, Mat dst) {
+	int area = get_object_area(img, R, G, B);
+	int perimeter = get_perimeter(img, R, G, B, dst);
+	if (perimeter == 0)
+		return 0;
+	double thinness_ratio = 4 * PI * area / pow(perimeter, 2);
+	return thinness_ratio;
+}
+
+double get_aspect_ratio(Mat* img, uchar R,  uchar G, uchar B) {
+	int rmax = 0, cmax = 0, rmin = (*img).rows, cmin = (*img).cols;
+	bool object_found = false;
+
+	for(int i = 0; i < (*img).rows; i++)
+		for (int j = 0; j < (*img).cols; j++) {
+			uchar Red = (*img).at<Vec3b>(i, j)[2];
+			uchar Green = (*img).at<Vec3b>(i, j)[1];
+			uchar Blue = (*img).at<Vec3b>(i, j)[0];
+
+			if (Red == R && Green == G && Blue == B) {
+				object_found = true;
+				if (i < rmin)
+					rmin = i;
+				if (i > rmax)
+					rmax = i;
+				if (j < cmin)
+					cmin = j;
+				if (j > cmax)
+					cmax = j;
+			}
+		}
+
+	if (!object_found || rmax == rmin)
+		return 0;
+
+	return (double) (cmax - cmin + 1) / (rmax - rmin + 1);
+}
+
+Mat compute_projection(Mat src, Vec3b obj) {
+	int height = src.rows;
+	int width = src.cols;
+
+	Mat projection(height, width, CV_8UC3, Scalar(255, 255, 255));
+
+	// Horizontal Projection
+	for (int i = 0; i < height; i++) {
+		int sum = 0;
+		for (int j = 0; j < width; j++) {
+			if (src.at<Vec3b>(i, j) == obj) {
+				sum++;
+			}
+		}
+		line(projection, Point(0, i), Point(sum, i), Vec3b(255, 0, 255), 1);
+	}
+
+	// Vertical Projection
+	for (int j = 0; j < width; j++) {
+		int sum = 0;
+		for (int i = 0; i < height; i++) {
+			if (src.at<Vec3b>(i, j) == obj) {
+				sum++;
+			}
+		}
+		line(projection, Point(j, height), Point(j, height - sum), Vec3b(255, 0, 255), 1);
+	}
+
+	return projection;
+}
+
+struct CompareVec3b {
+	bool operator()(const Vec3b& a, const Vec3b& b) const {
+		if (a[0] != b[0]) return a[0] < b[0];
+		if (a[1] != b[1]) return a[1] < b[1];
+		return a[2] < b[2];
+	}
+};
+
+Mat filterObjectsByAreaAndOrientation(Mat* labeledImage, double areaThreshold, double phiLow, double phiHigh) {
+	int height = (*labeledImage).rows;
+	int width = (*labeledImage).cols;
+
+	// Create an output image with the same size as input
+	Mat outputImage(height, width, CV_8UC3, Scalar(255, 255, 255));
+
+	// Find all unique colors (objects) in the image
+	set<Vec3b, CompareVec3b> uniqueColors;
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			Vec3b color = (*labeledImage).at<Vec3b>(i, j);
+			// Skip black background (0,0,0)
+			if (color != Vec3b(0, 0, 0)) {
+				uniqueColors.insert(color);
+			}
+		}
+	}
+
+	// Process each unique object
+	for (const Vec3b& objectColor : uniqueColors) {
+		uchar R = objectColor[2];
+		uchar G = objectColor[1];
+		uchar B = objectColor[0];
+		// Calculate area of the object
+		int area = get_object_area(labeledImage, R, G, B);
+
+		// Skip objects with area >= areaThreshold
+		if (area >= areaThreshold) {
+			continue;
+		}
+
+		// Create a temporary image for elongation calculation
+		Mat tempImage = (*labeledImage).clone();
+
+		// Calculate orientation angle
+		double phi = get_axis_of_elongation(labeledImage, R, G, B, tempImage);
+
+		// Check if orientation is within the specified range
+		if (phi >= phiLow && phi <= phiHigh) {
+			// If object meets both criteria, add it to the output image
+			for (int i = 0; i < height; i++) {
+				for (int j = 0; j < width; j++) {
+					if ((*labeledImage).at<Vec3b>(i, j) == objectColor) {
+						outputImage.at<Vec3b>(i, j) = objectColor;
+					}
+				}
+			}
+		}
+	}
+
+	return outputImage;
+}
+
 void MyCallBackFunc(int event, int x, int y, int flags, void* param)
 {
 	//More examples: http://opencvexamples.blogspot.com/2014/01/detect-mouse-clicks-and-moves-on-image.html
 	Mat* src = (Mat*)param;
-	if (event == EVENT_LBUTTONDOWN)
-		{
-			printf("Pos(x,y): %d,%d  Color(RGB): %d,%d,%d\n",
-				x, y,
-				(int)(*src).at<Vec3b>(y, x)[2],
-				(int)(*src).at<Vec3b>(y, x)[1],
-				(int)(*src).at<Vec3b>(y, x)[0]);
-		}
+	if (event == EVENT_LBUTTONDOWN) {
+		Mat newimg = (*src).clone();
+
+		uchar R = (*src).at<Vec3b>(y, x)[2];
+		uchar G = (*src).at<Vec3b>(y, x)[1];
+		uchar B = (*src).at<Vec3b>(y, x)[0];
+
+		Vec3b objectColor(B, G, R);
+
+		printf("Pos(x,y): %d,%d  Color(RGB): %d,%d,%d\n", x, y, 
+				(int) R, (int) G, (int) B);
+
+		printf("Object area is: %d\n", get_object_area(src, R, G, B));
+
+		int* center = get_object_center_of_mass(src, R, G, B, newimg);
+		printf("Center of mass is: row %d, column %d\n", center[0], center[1]);
+
+		printf("Angle of elongation is: %f degrees\n", get_axis_of_elongation(src, R, G, B, newimg));
+		printf("Object perimeter is: %d\n", get_perimeter(src, R, G, B, newimg));
+		printf("Thinness ratio is: %f\n", get_thinness_ratio(src, R, G, B, newimg));
+		printf("Aspect ratio is: %f\n", get_aspect_ratio(src, R, G, B));
+
+		//draw_contour(src, R, G, B, &newimg);
+
+		Mat projection = compute_projection(*src, objectColor);
+		imshow("Projection", projection);
+
+		imshow("New image", newimg);
+	}
 }
 
 void testMouseClick()
@@ -994,6 +1242,216 @@ void FloydSteinberg() {
 	}
 }
 
+std::vector<Point2i> get_neighbors(int img_height, int img_width, int i, int j) {
+	std::vector<Point2i> neighbors;
+	neighbors.push_back(Point2i(i - 1, j - 1));
+	neighbors.push_back(Point2i(i - 1, j));
+	neighbors.push_back(Point2i(i - 1, j + 1));
+	neighbors.push_back(Point2i(i, j - 1));
+	neighbors.push_back(Point2i(i, j + 1));
+	neighbors.push_back(Point2i(i + 1, j - 1));
+	neighbors.push_back(Point2i(i + 1, j));
+	neighbors.push_back(Point2i(i + 1, j + 1));
+	int index = 0;
+	for (Point2i p : neighbors) {
+		if (p.x < 0 || p.y < 0 || p.x >= img_height || p.y >= img_width) {
+			neighbors.erase(neighbors.begin() + index);
+		}
+		else {
+			i++;
+		}
+	}
+	return neighbors;
+}
+
+void generate_colors(Mat& labels, Mat& newimg) {
+	Vec3b colors[50] = { Vec3b(0,0,0) };
+	for (int i = 0; i < labels.rows; i++) {
+		for (int j = 0; j < labels.cols; j++) {
+			int label = labels.at<uchar>(i, j);
+			if (label == 0) {
+				newimg.at<Vec3b>(i, j) = Vec3b(255, 255, 255);
+			}
+			else {
+				if (colors[label] == Vec3b(0, 0, 0)) {
+					colors[label][0] = rand() % 256;
+					colors[label][1] = rand() % 256;
+					colors[label][2] = rand() % 256;
+					printf("label %d %d %d %d\n", label, colors[label][0], colors[label][1], colors[label][2]);
+				}
+				newimg.at<Vec3b>(i, j) = colors[label];
+			}
+		}
+	}
+}
+
+void bfs() {
+	char fname[MAX_PATH];
+
+	while (openFileDlg(fname))
+	{
+		double t = (double)getTickCount(); // Get the current time [s]
+
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		imshow("Original image", src);
+		Mat newimg(src.rows, src.cols, CV_8UC3);
+		uchar label = 0;
+		uchar R = 0;
+		uchar G = 0;
+		uchar B = 0;
+
+		Mat labels(src.rows, src.cols, CV_8UC1, Scalar(0));
+
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				if (src.at<uchar>(i, j) == 0 && labels.at<uchar>(i, j) == 0) {
+					label++;
+					std::queue<Point2i> q;
+					labels.at<uchar>(i, j) = label;
+					newimg.at<Vec3b>(i, j)[0] = B;
+					newimg.at<Vec3b>(i, j)[1] = G;
+					newimg.at<Vec3b>(i, j)[2] = R;
+
+					q.push(Point2i(i, j));
+					while (!q.empty()) {
+						Point2i p = q.front();
+						q.pop();
+						std::vector<Point2i> neighbors = get_neighbors(src.rows, src.cols, p.x, p.y);
+						for (Point2i p : neighbors) {
+							int x = p.x;
+							int y = p.y;
+							if (src.at<uchar>(x, y) == 0 && labels.at<uchar>(x, y) == 0) {
+								labels.at<uchar>(x, y) = label;
+								q.push(p);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		generate_colors(labels, newimg);
+		imshow("Color image", newimg);
+		waitKey(0);
+	}
+}
+
+std::vector<Point2i> get_prev_neighb(int img_height, int img_width, int i, int j) {
+	std::vector<Point2i> neighbors;
+	neighbors.push_back(Point2i(i - 1, j - 1));
+	neighbors.push_back(Point2i(i - 1, j));
+	neighbors.push_back(Point2i(i - 1, j + 1));
+	neighbors.push_back(Point2i(i, j - 1));
+	int index = 0;
+
+	std::vector<Point2i>::iterator it = neighbors.begin();
+	while (it != neighbors.end()) {
+		Point2i p = *it;
+		if (p.x < 0 || p.y < 0 || p.x >= img_height || p.y >= img_width) {
+			it = neighbors.erase(it);
+		}
+		else ++it;
+	}
+	return neighbors;
+}
+
+void two_pass_labeling() {
+	char fname[MAX_PATH];
+
+	while (openFileDlg(fname))
+	{
+		double t = (double)getTickCount(); // Get the current time [s]
+
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		imshow("Original image", src);
+
+		Mat newimg(src.rows, src.cols, CV_8UC3);
+		uchar label = 0;
+		Mat labels(src.rows, src.cols, CV_8UC1, Scalar(0));
+
+		int nrAccess = 0;
+
+		std::vector<std::vector<int>> edges(1000);
+		// first pass
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				if (src.at<uchar>(i, j) == 0 && labels.at<uchar>(i, j) == 0) {
+					std::vector<uchar> L; // list of neighboring labels
+					std::vector<Point2i> prev_n = get_prev_neighb(src.rows, src.cols, i, j);
+					for (Point2i n : prev_n) {
+						if (labels.at<uchar>(n.x, n.y) > 0) {
+							L.push_back(labels.at<uchar>(n.x, n.y));
+						}
+					}
+					if (L.size() == 0) {
+						// assign new label
+						label++;
+						labels.at<uchar>(i, j) = label;
+					}
+					else {
+						// assign the smallestlabel from the neighbors
+						uchar x = min_element(L.begin(), L.end())[0];
+						labels.at<uchar>(i, j) = x;
+						// record equivalence relationships
+						for (uchar y : L) {
+							if (x != y) {
+								//printf("nr access: %d\n", nrAccess++);
+								//printf("x: %d\n", x);
+								//printf("y: %d\n", y);
+								edges[x].push_back(y);
+								edges[y].push_back(x);
+							}
+						}
+					}
+
+				}
+			}
+		}
+
+		// display intermediate results after the first pass
+		Mat_<Vec3b> intermediate_result = generate_colors(labels, newimg);
+		imshow("After Pass 1 intermediate result", intermediate_result);
+
+		uchar newlabel = 0;
+		uchar* newlabels = (uchar*)malloc(src.rows * sizeof(uchar));
+		for (int i = 0; i < src.rows; i++) {
+			newlabels[i] = 0;
+
+		}
+
+		for (int i = 1; i <= label; i++) {
+			if (newlabels[i] == 0) {
+				newlabel++;
+				std::queue<uchar> Q;
+				newlabels[i] = newlabel;
+				Q.push(i);
+				while (!Q.empty()) {
+					int x = Q.front();
+					Q.pop();
+					for (int y : edges[x]) {
+						if (newlabels[y] == 0) {
+							newlabels[y] = newlabel;
+							Q.push(y);
+						}
+					}
+				}
+			}
+		}
+
+		// assign final label to the label matrix
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				labels.at<uchar>(i, j) = newlabels[labels.at<uchar>(i, j)];
+			}
+		}
+
+		generate_colors(labels, newimg);
+		imshow("New image", newimg);
+
+		waitKey(0);
+	}
+}
+
 int main() 
 {
 	cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_FATAL);
@@ -1030,7 +1488,10 @@ int main()
 		printf(" 23 - Compute PDF\n");
 		printf(" 24 - Multi-level thresholding\n");
 		printf(" 25 - Floyd Steinberg dithering\n");
-
+		printf(" 26 - Mouse callback demo\n");
+		printf(" 27 - Processing function\n");
+		printf(" 28 - BFS component labeling\n");
+		printf(" 29 - Two-pass component labeling\n");
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d",&op);
@@ -1121,20 +1582,63 @@ int main()
 				waitKey(0);
 				break;
 			case 23:
-				/*float sum = 0.0;
+			{
+				float sum = 0.0;
 				float* pdf = computePDF(imread("Images/cameraman.bmp", IMREAD_GRAYSCALE));
 				for (int i = 0; i < 256; i++) {
 					printf("PDF[%d] = %f\n", i, pdf[i]);
 					sum += pdf[i];
 				}
 				printf("Sum of PDF values: %f\n", sum);
-				waitKey(3000);*/
+				waitKey(3000);
 				break;
+			}
 			case 24:
 				MultilevelThresholding();
 				break;
 			case 25: 				
 				FloydSteinberg();
+				break;
+			case 26:
+				testMouseClick();
+				break;
+			case 27:
+				char fname[MAX_PATH];
+				while (openFileDlg(fname))
+				{
+					Mat labeledImage = imread(fname);
+					if (labeledImage.empty()) {
+						printf("Error: Could not open image.\n");
+						break;
+					}
+
+					double areaThreshold, phiLow, phiHigh;
+
+					// Get user input for area threshold
+					printf("Enter area threshold (objects with area < this will be kept): ");
+					scanf("%lf", &areaThreshold);
+
+					// Get user input for orientation phi range
+					printf("Enter lower bound for orientation phi (in degrees): ");
+					scanf("%lf", &phiLow);
+
+					printf("Enter upper bound for orientation phi (in degrees): ");
+					scanf("%lf", &phiHigh);
+
+					// Apply filtering
+					Mat filteredImage = filterObjectsByAreaAndOrientation(&labeledImage, areaThreshold, phiLow, phiHigh);
+
+					// Display original and filtered images
+					imshow("Original Labeled Image", labeledImage);
+					imshow("Filtered Objects", filteredImage);
+					waitKey(0);
+				}
+				break;
+			case 28:
+				bfs();
+				break;
+			case 29:
+				two_pass_labeling();
 				break;
 		}
 	}
