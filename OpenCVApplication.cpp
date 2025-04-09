@@ -4,7 +4,11 @@
 #include "stdafx.h"
 #include "common.h"
 #include <opencv2/core/utils/logger.hpp>
+#include <opencv2/opencv.hpp>
+#include <fstream>
+
 using namespace std;
+using namespace cv;
 
 wchar_t* projectPath;
 
@@ -1083,36 +1087,25 @@ void MultilevelThresholding() {
 		Mat src = imread(fname, IMREAD_GRAYSCALE);
 		Mat dst = Mat(src.rows, src.cols, CV_8UC1);
 
-		int* hist = (int*)(calloc(256, sizeof(int)));
-		float* fdp = (float*)(calloc(256, sizeof(float)));
+		float* fdp = computePDF(src);
 
-		for (int i = 0; i < src.rows; i++) {
-			for (int j = 0; j < src.cols; j++) {
-				hist[src.at<uchar>(i, j)]++;
-			}
-		}
-
-		for (int i = 0; i < 256; i++) {
-			fdp[i] = (float)hist[i] / (src.rows * src.cols);
-		}
-
-		int w = 5;
+		int wh = 5;
 		float th = 0.0003;
 		int nrSteps = 2;
 
-		std::vector<int> steps;
+		std::vector<int> steps; // the local maximas vector
 		steps.push_back(0);
 
-		for (int i = w; i < 255 - w; i++) {
+		for (int i = wh; i < 255 - wh; i++) {
 			float v = 0;
 			int ok = 1;
-			for (int k = i - w; k <= i + w; k++) {
+			for (int k = i - wh; k <= i + wh; k++) {
 				if (fdp[i] < fdp[k]) {
 					ok = 0;
 				}
 				v = v + fdp[k];
 			}
-			v = v / (2 * w + 1);
+			v = v / (2 * wh + 1);
 			if (ok == 1 && fdp[i] > v + th) {
 				steps.push_back(i);
 				nrSteps++;
@@ -1159,24 +1152,7 @@ void FloydSteinberg() {
 		Mat dst = Mat(src.rows, src.cols, CV_8UC1);
 		Mat dstTemp = Mat(src.rows, src.cols, CV_32FC1);
 
-		for (int i = 0; i < src.rows; i++) {
-			for (int j = 0; j < src.cols; j++) {
-				dstTemp.at<float>(i, j) = (float)src.at<uchar>(i, j);
-			}
-		}
-
-		int* hist = (int*)(calloc(256, sizeof(int)));
-		float* pdf = (float*)(calloc(256, sizeof(float)));
-
-		for (int i = 0; i < src.rows; i++) {
-			for (int j = 0; j < src.cols; j++) {
-				hist[src.at<uchar>(i, j)]++;
-			}
-		}
-
-		for (int i = 0; i < 256; i++) {
-			pdf[i] = (float)hist[i] / (src.rows * src.cols);
-		}
+		float* pdf = computePDF(src);
 
 		int w = 5;
 		float th = 0.0003;
@@ -1273,7 +1249,7 @@ void generate_colors(Mat& labels, Mat& newimg) {
 					colors[label][0] = rand() % 256;
 					colors[label][1] = rand() % 256;
 					colors[label][2] = rand() % 256;
-					printf("label %d %d %d %d\n", label, colors[label][0], colors[label][1], colors[label][2]);
+					//printf("label %d %d %d %d\n", label, colors[label][0], colors[label][1], colors[label][2]);
 				}
 				newimg.at<Vec3b>(i, j) = colors[label];
 			}
@@ -1447,10 +1423,329 @@ void two_pass_labeling() {
 	}
 }
 
+Point2i getNextPixel(int dir, int x, int y) {
+	switch (dir) {
+	case 0: return Point2i(x, y + 1); // Up
+	case 1: return Point2i(x - 1, y + 1); // Up-Right
+	case 2: return Point2i(x - 1, y); // Right
+	case 3: return Point2i(x - 1, y - 1); // Down-Right
+	case 4: return Point2i(x, y - 1); // Down
+	case 5: return Point2i(x + 1, y - 1); // Down-Left
+	case 6: return Point2i(x + 1, y); // Left
+	case 7: return Point2i(x + 1, y + 1); // Up-Left
+	default: return Point2i(x, y); // Default case
+	}
+}
+
+void border_tracing() {
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+
+		imshow("Original image", src);
+
+		//find start point of object
+		Point2i startPoint;
+		for (int i = 0; i < src.rows; i++) {
+			for (int j = 0; j < src.cols; j++) {
+				if (src.at<uchar>(i, j) == 0) {
+					startPoint = Point2i(i, j);
+					i = src.rows;
+					j = src.cols;
+				}
+			}
+		}
+
+		printf("Starting point: %d, %d\n", startPoint.x, startPoint.y);
+
+		int dir = 7;
+		int n = 1;
+
+		std::vector<Point2i> border;
+		std::vector<int> chainCode;
+		Point2i currentPoint = startPoint;
+		border.push_back(startPoint);
+
+		do {
+			if (dir % 2 == 0) {
+				dir = (dir + 7) % 8;
+			}
+			else {
+				dir = (dir + 6) % 8;
+			}
+
+			Point2i nextP = getNextPixel(dir, currentPoint.x, currentPoint.y);
+
+			//what happens if no neighbors are black?
+			while (src.at<uchar>(nextP.x, nextP.y) != 0) {
+				dir = (dir + 1) % 8;
+				nextP = getNextPixel(dir, currentPoint.x, currentPoint.y);
+			}
+
+			if (src.at<uchar>(nextP.x, nextP.y) == 0) {
+				border.push_back(nextP);
+				n = border.size();
+				currentPoint = nextP;
+				chainCode.push_back(dir);
+			}
+		} while (border.size() <= 2 || (border.at(0) != border.at(n - 2) && border.at(1) != border.at(n - 1)));
+
+		//build new image
+		Mat borderImg(src.rows, src.cols, CV_8UC1);
+		for (int i = 0; i < borderImg.rows; i++) {
+			for (int j = 0; j < borderImg.cols; j++) {
+				borderImg.at<uchar>(i, j) = 255;
+			}
+		}
+		for (int k = 0; k < border.size(); k++) {
+			Point2i p = border.at(k);
+			borderImg.at<uchar>(p.x, p.y) = 0;
+		}
+
+		printf("Chain code: \n", chainCode.size());
+		for (int i = 0; i < chainCode.size() - 2; i++) {
+			printf("%d ", chainCode.at(i));
+		}
+
+		printf("\nDerivative chain code: \n");
+		for (int i = 1; i < chainCode.size(); i++) {
+			int val = (chainCode.at(i) - chainCode.at(i - 1) + 8) % 8;
+			printf("%d ", val);
+		}
+		imshow("Border image", borderImg);
+
+		waitKey(0);
+	}
+}
+
+void reconstruct_border() {
+	char folderName[MAX_PATH];
+	if (openFolderDlg(folderName) == 0)
+		return;
+	char fname[MAX_PATH];
+
+	char imN[MAX_PATH];
+	strcpy(imN, folderName);
+	strcat(imN, "\\gray_background.bmp");
+
+	char txN[MAX_PATH];
+	strcpy(txN, folderName);
+	strcat(txN, "\\reconstruct.txt");
+
+	int di[8] = { 0, -1, -1, -1, 0, 1, 1, 1 };
+	int dj[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+
+	Mat img = imread(imN, IMREAD_GRAYSCALE);
+	cvtColor(img, img, COLOR_GRAY2BGR);
+
+	ifstream file(txN);
+
+	Point p;
+	file >> p.x >> p.y;
+	int nr;
+	file >> nr;
+	std::vector<int> chain;
+
+
+	int buff;
+	while (file >> buff) {
+		chain.push_back(buff);
+	}
+
+	Point point = p;
+
+	img.at<Vec3b>(point.x, point.y)[0] = 255;
+	img.at<Vec3b>(point.x, point.y)[1] = 0;
+	img.at<Vec3b>(point.x, point.y)[2] = 255;
+
+	for (auto link : chain) {
+		point.x += di[link];
+		point.y += dj[link];
+		img.at<Vec3b>(point.x, point.y)[0] = 255;
+		img.at<Vec3b>(point.x, point.y)[1] = 0;
+		img.at<Vec3b>(point.x, point.y)[2] = 255;
+	}
+
+	imshow("Contour", img);
+	waitKey();
+
+}
+
+Mat dilation(Mat src) {
+	Mat dst = src.clone();
+
+	for (int i = 1; i < src.rows - 1; i++) 
+		for (int j = 1; j < src.cols - 1; j++) 
+			if (src.at<uchar>(i, j) == 0) {
+				dst.at<uchar>(i - 1, j) = 0; 
+				dst.at<uchar>(i + 1, j) = 0;
+				dst.at<uchar>(i, j - 1) = 0;
+				dst.at<uchar>(i, j + 1) = 0;
+			}
+
+	return dst;
+}
+
+Mat dilate_n_times(Mat src, int n) {
+	Mat dst = src.clone();
+
+	for (int i = 0; i < n; i++) 
+		dst = dilation(dst);
+
+	return dst;
+}
+
+Mat erosion(Mat src) {
+	Mat dst = src.clone();
+
+	for (int i = 1; i < src.rows - 1; i++)
+		for (int j = 1; j < src.cols - 1; j++)
+			if (src.at<uchar>(i, j) == 0) {
+				if (src.at<uchar>(i - 1, j) == 255 ||
+					src.at<uchar>(i + 1, j) == 255 ||
+					src.at<uchar>(i, j + 1) == 255 ||
+					src.at<uchar>(i, j - 1) == 255 || 
+					src.at<uchar>(i - 1, j + 1) == 255 ||
+					src.at<uchar>(i - 1, j - 1) == 255 ||
+					src.at<uchar>(i + 1, j + 1) == 255 || 
+					src.at<uchar>(i + 1, j - 1) == 255 )
+					dst.at<uchar>(i, j) = 255;
+			}
+
+	return dst;
+}
+
+Mat erode_n_times(Mat src, int n) {
+	Mat dst = src.clone();
+
+	for (int i = 0; i < n; i++)
+		dst = erosion(dst);
+
+	return dst;
+}
+
+Mat opening(Mat src) {
+	Mat dst = src.clone();
+	dst = erosion(dst);
+	dst = dilation(dst);
+	return dst;
+}
+
+Mat closing(Mat src) {
+	Mat dst = src.clone();
+	dst = dilation(dst);
+	dst = erosion(dst);
+	return dst;
+}
+
+Mat boundary_extraction(Mat src) {
+	// Convert to grayscale if needed
+	if (src.channels() > 1) {
+		cvtColor(src, src, COLOR_BGR2GRAY);
+	}
+
+	// Binarize the image: anything darker than 128 becomes black (0), else white (255)
+	threshold(src, src, 128, 255, THRESH_BINARY);
+
+	Mat copy = src.clone();
+
+	copy = erosion(copy);
+	Mat boundary(src.rows, src.cols, CV_8UC1);
+	for (int i = 0; i < src.rows; i++)
+		for (int j = 0; j < src.cols; j++)
+			if (src.at<uchar>(i, j) == 0 && copy.at<uchar>(i, j) != 0)
+				boundary.at<uchar>(i, j) = 0;
+			else
+				boundary.at<uchar>(i, j) = 255;
+	return boundary;
+}
+
+
+bool areEqual(Mat mat1, Mat mat2) {
+	for (int i = 0; i < mat1.rows; i++) {
+		for (int j = 0; j < mat1.cols; j++) {
+			if (mat1.at<uchar>(i, j) != mat2.at<uchar>(i, j)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+Mat intersection(Mat mat1, Mat mat2) {
+	Mat inters(mat1.rows, mat1.cols, CV_8UC1);
+	for (int i = 0; i < mat1.rows; i++) {
+		for (int j = 0; j < mat1.cols; j++) {
+			if (mat1.at<uchar>(i, j) == mat2.at<uchar>(i, j) && mat1.at<uchar>(i, j) == 0) {
+				inters.at<uchar>(i, j) = 0;
+			}
+			else {
+				inters.at<uchar>(i, j) = 255;
+			}
+		}
+	}
+	return inters;
+}
+
+Mat region_filling(Mat src) {
+	Mat complement(src.rows, src.cols, CV_8UC1);
+	Mat region(src.rows, src.cols, CV_8UC1);
+	complement = 255 - src;
+
+	for (int i = 0; i < src.rows; i++)
+		for (int j = 0; j < src.cols; j++)
+			region.at<uchar>(i, j) = 255;
+
+	int starti = src.rows / 2;
+	int startj = src.cols / 2;
+	cout << "Start point: " << starti << " " << startj << endl;
+	region.at<uchar>(starti, startj) = 0;
+
+	Mat copy = dilation(region);
+	copy = intersection(copy, complement);
+
+	while (!areEqual(copy, region)) {
+		region = copy.clone(); 
+		copy = dilation(region);
+		copy = intersection(copy, complement);
+	}
+
+	// combine the filled region with the original image (union)
+	Mat finalResult(src.rows, src.cols, CV_8UC1);
+	for (int i = 0; i < region.rows; i++) {
+		for (int j = 0; j < region.cols; j++) {
+			if (region.at<uchar>(i, j) == 0 || src.at<uchar>(i, j) == 0) {
+				finalResult.at<uchar>(i, j) = 0;
+			}
+			else {
+				finalResult.at<uchar>(i, j) = 255;
+			}
+		}
+	}
+
+	return finalResult;
+}
+
+Mat flip_vertically(Mat src) {
+	Mat dst(src.rows, src.cols, CV_8UC3);
+	for (int i = 0; i < src.rows; i++) {
+		for (int j = 0; j < src.cols; j++) {
+			dst.at<Vec3b>(src.rows - i - 1, j)[2] = src.at<Vec3b>(i, j)[2];
+			dst.at<Vec3b>(src.rows - i - 1, j)[1] = src.at<Vec3b>(i, j)[1];
+			dst.at<Vec3b>(src.rows - i - 1, j)[0] = src.at<Vec3b>(i, j)[0];
+		}
+	}
+	return dst;
+}
+
 int main()
 {
 	cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_FATAL);
 	projectPath = _wgetcwd(0, 0);
+
+	char fname[MAX_PATH];
+	int n;
 
 	int op;
 	do
@@ -1487,6 +1782,17 @@ int main()
 		printf(" 27 - Processing function\n");
 		printf(" 28 - BFS component labeling\n");
 		printf(" 29 - Two-pass component labeling\n");
+		printf(" 30 - Border tracing\n");
+		printf(" 31 - Reconstruct border\n");
+		printf(" 32 - Dilation\n");
+		printf(" 33 - Dilation applied n times\n");
+		printf(" 34 - Erosion\n");
+		printf(" 35 - Erosion applied n times\n");
+		printf(" 36 - Opening\n");
+		printf(" 37 - Closing\n");
+		printf(" 38 - Boundary extraction\n");
+		printf(" 39 - Region filling\n");
+		printf(" 40 - Flip image vertically\n");
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d", &op);
@@ -1598,7 +1904,6 @@ int main()
 			testMouseClick();
 			break;
 		case 27:
-			char fname[MAX_PATH];
 			while (openFileDlg(fname))
 			{
 				Mat labeledImage = imread(fname);
@@ -1634,6 +1939,116 @@ int main()
 			break;
 		case 29:
 			two_pass_labeling();
+			break;
+		case 30:
+			border_tracing();
+			break;
+		case 31:
+			reconstruct_border();
+			break;
+		case 32:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = dilation(src);
+				imshow("After dilation", dst);
+				waitKey(0);
+			}
+			break;
+		case 33:
+			printf("Enter the number of times to dilate: ");
+			scanf("%d", &n);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = dilate_n_times(src, n);
+				imshow("After applying dilation n times", dst);
+				waitKey(0);
+			}
+			break;
+		case 34:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = erosion(src);
+				imshow("After erosion", dst);
+				waitKey(0);
+			}
+			break;
+		case 35:
+			printf("Enter the number of times to erode: ");
+			scanf("%d", &n);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = erode_n_times(src, n);
+				imshow("After applying erosion n times", dst);
+				waitKey(0);
+			}
+			break;
+		case 36:
+			printf("Enter the number of times to apply opening: ");
+			scanf("%d", &n);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = opening(src);
+				imshow("After opening", dst);
+				for (int i = 1; i < n; i++)
+					dst = opening(dst);
+				imshow("After applying opening n times", dst);
+				waitKey(0);
+			}
+			break;
+		case 37:
+			printf("Enter the number of times to apply closing: ");
+			scanf("%d", &n);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = closing(src);
+				imshow("After closing", dst);
+				for (int i = 1; i < n; i++)
+					dst = closing(dst);
+				imshow("After applying closing n times", dst);
+				waitKey(0);
+			}
+			break;
+		case 38:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = boundary_extraction(src);
+				imshow("After boundary extraction", dst);
+				waitKey(0);
+			}
+			break;
+		case 39:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = region_filling(src);
+				imshow("After region filling", dst);
+				waitKey(0);
+			}
+			break;
+		case 40:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_COLOR);
+				imshow("Original image", src);
+				Mat dst = flip_vertically(src);
+				imshow("After flipping vertically", dst);
+				waitKey(0);
+			}
 			break;
 		}
 	} while (op != 0);
