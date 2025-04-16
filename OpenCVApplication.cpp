@@ -293,14 +293,14 @@ void getRGB() {
 }
 
 // Create a function for converting from grayscale to black and white (binary).
-void gray_to_binary(int threshold) {
-	char fname[MAX_PATH];
+Mat gray_to_binary(Mat src, int threshold) {
+	//char fname[MAX_PATH];
 
-	while (openFileDlg(fname))
-	{
-		double t = (double)getTickCount(); // Get the current time [s]
+	//while (openFileDlg(fname))
+	//{
+	//	double t = (double)getTickCount(); // Get the current time [s]
 
-		Mat src = imread(fname, IMREAD_GRAYSCALE);
+	//	Mat src = imread(fname, IMREAD_GRAYSCALE);
 
 		int height = src.rows;
 		int width = src.cols;
@@ -320,16 +320,18 @@ void gray_to_binary(int threshold) {
 			}
 		}
 
-		// Get the current time again and compute the time difference [s]
-		t = ((double)getTickCount() - t) / getTickFrequency();
-		// Print (in the console window) the processing time in [ms] 
-		printf("Time = %.3f [ms]\n", t * 1000);
+		return dst;
 
-		imshow("input image", src);
+		// Get the current time again and compute the time difference [s]
+		//t = ((double)getTickCount() - t) / getTickFrequency();
+		// Print (in the console window) the processing time in [ms] 
+		//printf("Time = %.3f [ms]\n", t * 1000);
+
+		/*imshow("input image", src);
 		imshow("binary image", dst);
 
-		waitKey();
-	}
+		waitKey();*/
+	//}
 }
 
 /* Create a function that will convert a color RGB24 image (CV_8UC3 type) to
@@ -1079,6 +1081,176 @@ void showHistogram(const std::string& name, int* hist, const int  hist_cols, con
 	imshow(name, imgHist);
 }
 
+float computeMean(Mat src) {
+	float mean = 0;
+	float* pdf = computePDF(src);
+	for (int i = 0; i < 256; i++)
+		mean += i * pdf[i];
+	return mean;
+}
+
+float computeStandardDeviation(Mat src) {
+	float mean = computeMean(src);
+	float* pdf = computePDF(src);
+	float stdDev = 0;
+	for (int i = 0; i < 256; i++)
+		stdDev += (i - mean) * (i - mean) * pdf[i];
+	return sqrt(stdDev);
+}
+
+int* computeCumulativeHistogram(Mat src) {
+	int* histogram = computeHistogram(src);
+	int* cumulativeHistogram = (int*)calloc(256, sizeof(int));
+
+	int cumulative = 0;
+	for (int i = 0; i < 256; i++) {
+		cumulative += histogram[i];
+		cumulativeHistogram[i] = cumulative;
+	}
+
+	free(histogram);
+	return cumulativeHistogram;
+}
+
+Mat histogramEqualization(Mat src) {
+	Mat dst = Mat(src.rows, src.cols, CV_8UC1);
+	int* cumulativeHist = computeCumulativeHistogram(src);
+	
+	float* cpdf = (float*)calloc(256, sizeof(float));
+	int totalPixels = src.rows * src.cols;
+	for (int i = 0; i < 256; i++) {
+		cpdf[i] = (float)cumulativeHist[i] / totalPixels;
+	}
+
+	for (int i = 0; i < src.rows; i++) {
+		for (int j = 0; j < src.cols; j++) {
+			uchar pixelValue = src.at<uchar>(i, j);
+			dst.at<uchar>(i, j) = cvRound(255 * cpdf[pixelValue]);
+		}
+	}
+
+	free(cumulativeHist);
+	free(cpdf);
+
+	return dst;
+}
+
+Mat modifyContrast(Mat src, int iOutMin, int iOutMax)
+{
+	int* histogram = computeHistogram(src);
+	int iMin, iMax;
+
+	for (int i = 0; i < 256; i++)
+		if (histogram[i] != 0)
+		{
+			iMin = i;
+			break;
+		}
+
+	for (int i = 255; i >= 0; i--)
+		if (histogram[i] != 0)
+		{
+			iMax = i;
+			break;
+		}
+
+	int height = src.rows;
+	int width = src.cols;
+
+	Mat dst = src.clone();
+
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			int pixel = src.at<uchar>(i, j);
+			pixel = (iOutMax - iOutMin) * (pixel - iMin) / (iMax - iMin) + iOutMin;
+			if (pixel < 0)
+			{
+				pixel = 0;
+			}
+			if (pixel > 255)
+			{
+				pixel = 255;
+			}
+			dst.at<uchar>(i, j) = pixel;
+		}
+	}
+
+	return dst;
+}
+
+Mat gammaCorrection(Mat src, float gamma) {
+	Mat dst = src.clone();
+	
+	for (int i = 0; i < src.rows; i++) {
+		for (int j = 0; j < src.cols; j++) {
+			int pixel = src.at<uchar>(i, j);
+			pixel = 255 * pow((float)pixel / 255, gamma);
+			dst.at<uchar>(i, j) = pixel;
+		}
+	}
+	return dst;
+}
+
+Mat modifyBrightness(Mat src, int delta) {
+	Mat dst = src.clone();
+
+	for (int i = 0; i < src.rows; i++) {
+		for (int j = 0; j < src.cols; j++) {
+			int pixel = src.at<uchar>(i, j);
+			pixel += delta;
+			if (pixel < 0)
+				pixel = 0;
+			if (pixel > 255)
+				pixel = 255;
+			dst.at<uchar>(i, j) = pixel;
+		}
+	}
+	return dst;
+}
+
+float computeThreshold(Mat src, float error) {
+	int* histogram = computeHistogram(src);
+	int imin, imax;
+
+	for (int i = 0; i < 256; i++) {
+		if (histogram[i] != 0) {
+			imin = i;
+			break;
+		}
+	}
+	for (int i = 255; i >= 0; i--) {
+		if (histogram[i] != 0) {
+			imax = i;
+			break;
+		}
+	}
+
+	float prevThreshold = (imin + imax) / 2.0;
+	float threshold = prevThreshold;
+
+	do {
+		float mean1 = 0, mean2 = 0;
+		int count1 = 0, count2 = 0;
+
+		for (int i = imin; i <= threshold; i++) {
+			mean1 += i * histogram[i];
+			count1 += histogram[i];
+		}
+		mean1 /= count1;
+
+		for (int i = threshold + 1; i <= imax; i++) {
+			mean2 += i * histogram[i];
+			count2 += histogram[i];
+		}
+		mean2 /= count2;
+
+		prevThreshold = threshold;
+		threshold = (mean1 + mean2) / 2.0;
+	} while (abs(threshold - prevThreshold) > error);
+
+	return threshold;
+}
+
 void MultilevelThresholding() {
 	char fname[MAX_PATH];
 
@@ -1425,15 +1597,15 @@ void two_pass_labeling() {
 
 Point2i getNextPixel(int dir, int x, int y) {
 	switch (dir) {
-	case 0: return Point2i(x, y + 1); // Up
-	case 1: return Point2i(x - 1, y + 1); // Up-Right
-	case 2: return Point2i(x - 1, y); // Right
-	case 3: return Point2i(x - 1, y - 1); // Down-Right
-	case 4: return Point2i(x, y - 1); // Down
-	case 5: return Point2i(x + 1, y - 1); // Down-Left
-	case 6: return Point2i(x + 1, y); // Left
-	case 7: return Point2i(x + 1, y + 1); // Up-Left
-	default: return Point2i(x, y); // Default case
+	case 0: return Point2i(x, y + 1); 
+	case 1: return Point2i(x - 1, y + 1); 
+	case 2: return Point2i(x - 1, y); 
+	case 3: return Point2i(x - 1, y - 1); 
+	case 4: return Point2i(x, y - 1);
+	case 5: return Point2i(x + 1, y - 1);
+	case 6: return Point2i(x + 1, y);
+	case 7: return Point2i(x + 1, y + 1); 
+	default: return Point2i(x, y); 
 	}
 }
 
@@ -1793,6 +1965,12 @@ int main()
 		printf(" 38 - Boundary extraction\n");
 		printf(" 39 - Region filling\n");
 		printf(" 40 - Flip image vertically\n");
+		printf(" 41 - The mean and standard deviation + cumulative histogram\n");
+		printf(" 42 - Threshold computation\n");
+		printf(" 43 - Histogram equalization\n");
+		printf(" 44 - Histogram stretching/shrinking\n");
+		printf(" 45 - Gamma correction\n");
+		printf(" 46 - Modify brightness\n");
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d", &op);
@@ -1862,13 +2040,20 @@ int main()
 			int threshold;
 			printf("Enter threshold: ");
 			scanf("%d", &threshold);
-			gray_to_binary(threshold);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				Mat dst = gray_to_binary(src, threshold);
+				imshow("After grayscale to black and white", dst);
+				waitKey(0);
+			}
 			break;
 		case 20:
 			RGBtoHSV();
 			break;
 		case 21:
-			showHistogram("Histogram", computeHistogram(imread("Images/cameraman.bmp", IMREAD_GRAYSCALE)), 256, 200);
+			showHistogram("Histogram", computeHistogram(imread("Images/cameraman.bmp", IMREAD_GRAYSCALE)), 256, 256);
 			waitKey(0);
 			break;
 		case 22:
@@ -1879,7 +2064,7 @@ int main()
 				printf("Invalid number of bins.\n");
 				break;
 			}
-			showHistogram("Histogram", histogramReduced(imread("Images/cameraman.bmp", IMREAD_GRAYSCALE), m), m, 200);
+			showHistogram("Histogram", histogramReduced(imread("Images/cameraman.bmp", IMREAD_GRAYSCALE), m), m, 256);
 			waitKey(0);
 			break;
 		case 23:
@@ -2047,6 +2232,94 @@ int main()
 				imshow("Original image", src);
 				Mat dst = flip_vertically(src);
 				imshow("After flipping vertically", dst);
+				waitKey(0);
+			}
+			break;
+		case 41:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				showHistogram("Initial histogram", computeHistogram(src), 256, 256);
+				double mean = computeMean(src);
+				printf("Mean intensity value: %f\n", mean);
+				double stddev = computeStandardDeviation(src);
+				printf("Standard deviation: %f\n", stddev);
+				showHistogram("Cumulative histogram", computeCumulativeHistogram(src), 256, 256);
+				waitKey(0);
+			}
+			break;
+		case 42:
+			float error;
+			printf("Enter the error threshold: ");
+			scanf("%f", &error);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				int threshold = computeThreshold(src, error);
+				printf("Computed threshold: %d\n", threshold);
+				Mat binaryImage = gray_to_binary(src, threshold);
+				imshow("Binary image after thresholding", binaryImage);
+				waitKey(0);
+			}
+			break;
+		case 43:
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				showHistogram("Initial histogram", computeHistogram(src), 256, 256);
+				Mat dst = histogramEqualization(src);
+				imshow("After histogram equalization", dst);
+				showHistogram("Equalized histogram", computeHistogram(dst), 256, 256);
+				waitKey(0);
+			}
+			break;
+		case 44:
+			int minVal, maxVal;
+			printf("Enter the minimum value for histogram stretching/shrinking: ");
+			scanf("%d", &minVal);
+			printf("Enter the maximum value for histogram stretching/shrinking: ");
+			scanf("%d", &maxVal);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				showHistogram("Initial histogram", computeHistogram(src), 256, 256);
+				Mat dst = modifyContrast(src, minVal, maxVal);
+				imshow("After histogram stretching", dst);
+				showHistogram("Stretched histogram", computeHistogram(dst), 256, 256);
+				waitKey(0);
+			}
+			break;
+		case 45:
+			float gamma;
+			printf("Enter the gamma value for gamma correction: ");
+			scanf("%f", &gamma);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				showHistogram("Initial histogram", computeHistogram(src), 256, 256);
+				Mat dst = gammaCorrection(src, gamma);
+				imshow("After gamma correction", dst);
+				showHistogram("Gamma corrected histogram", computeHistogram(dst), 256, 256);
+				waitKey(0);
+			}
+			break;
+		case 46:
+			int brightness;
+			printf("Enter the brightness value: ");
+			scanf("%d", &brightness);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				imshow("Original image", src);
+				showHistogram("Initial histogram", computeHistogram(src), 256, 256);
+				Mat dst = modifyBrightness(src, brightness);
+				imshow("After brightness modification", dst);
+				showHistogram("Brightness modified histogram", computeHistogram(dst), 256, 256);
 				waitKey(0);
 			}
 			break;
