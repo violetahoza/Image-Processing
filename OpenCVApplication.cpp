@@ -6,6 +6,8 @@
 #include <opencv2/core/utils/logger.hpp>
 #include <opencv2/opencv.hpp>
 #include <fstream>
+#include <math.h>
+#include "LicensePlateRecognition.h"
 
 using namespace std;
 using namespace cv;
@@ -1911,6 +1913,7 @@ Mat flip_vertically(Mat src) {
 	return dst;
 }
 
+
 int main()
 {
 	cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_FATAL);
@@ -1971,6 +1974,9 @@ int main()
 		printf(" 44 - Histogram stretching/shrinking\n");
 		printf(" 45 - Gamma correction\n");
 		printf(" 46 - Modify brightness\n");
+		printf(" 47 - License Plate Recognition\n");
+		/*printf(" 48 - Image preprocessing\n");
+		printf(" 49 - Plate localization\n");*/
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d", &op);
@@ -2323,6 +2329,21 @@ int main()
 				waitKey(0);
 			}
 			break;
+		case 47:
+			recognizeLicensePlate();
+			break;
+		//case 48:
+		//	while (openFileDlg(fname)) {
+		//		Mat src = imread(fname);
+		//		//Mat processed = preprocessImage(src, true);
+		//	}
+		//	break;
+		//case 49:
+		//	while (openFileDlg(fname)) {
+		//		Mat src = imread(fname);
+		//		//vector<RotatedRect> plates = detectLicensePlates(src, true);
+		//	}
+		//	break;
 		}
 	} while (op != 0);
 	return 0;
