@@ -2309,8 +2309,39 @@ void applyGaussianFilter(const Mat& src, Mat& dst) {
 	// Normalize the kernel
 	kernel /= sum;
 
-	// Apply convolution with the Gaussian kernel
-	filter2D(src, dst, -1, kernel);
+	// Apply custom convolution with the Gaussian kernel
+	dst = Mat(src.rows, src.cols, src.type());
+
+	int kRows = kernel.rows;
+	int kCols = kernel.cols;
+	int kCenterX = kCols / 2;
+	int kCenterY = kRows / 2;
+
+	for (int i = 0; i < src.rows; i++) {
+		for (int j = 0; j < src.cols; j++) {
+			float sum = 0.0;
+
+			// Apply convolution
+			for (int m = 0; m < kRows; m++) {
+				int mm = kRows - 1 - m;  // Flip the kernel
+
+				for (int n = 0; n < kCols; n++) {
+					int nn = kCols - 1 - n;  // Flip the kernel
+
+					// Get the corresponding pixel from the input image
+					int ii = i + (m - kCenterY);
+					int jj = j + (n - kCenterX);
+
+					// Check if pixel is inside the image boundaries
+					if (ii >= 0 && ii < src.rows && jj >= 0 && jj < src.cols) {
+						sum += src.at<uchar>(ii, jj) * kernel.at<float>(mm, nn);
+					}
+				}
+			}
+
+			dst.at<uchar>(i, j) = saturate_cast<uchar>(sum);
+		}
+	}
 }
 
 // Step 2a: Apply Sobel operators as specified in equation 11.4
@@ -2330,8 +2361,26 @@ void applySobelOperators(const Mat& src, Mat& gradX, Mat& gradY) {
 	gradX = Mat(src.size(), CV_32F);
 	gradY = Mat(src.size(), CV_32F);
 
-	filter2D(src, gradX, CV_32F, sobelX);
-	filter2D(src, gradY, CV_32F, sobelY);
+	// Apply convolution for each pixel
+	for (int i = 1; i < src.rows - 1; i++) {
+		for (int j = 1; j < src.cols - 1; j++) {
+			float sumX = 0.0f;
+			float sumY = 0.0f;
+
+			// Apply convolution with Sobel kernels
+			for (int m = -1; m <= 1; m++) {
+				for (int n = -1; n <= 1; n++) {
+					float pixelValue = static_cast<float>(src.at<uchar>(i + m, j + n));
+					sumX += pixelValue * sobelX.at<float>(m + 1, n + 1);
+					sumY += pixelValue * sobelY.at<float>(m + 1, n + 1);
+				}
+			}
+
+			// Store the result without normalization
+			gradX.at<float>(i, j) = sumX;
+			gradY.at<float>(i, j) = sumY;
+		}
+	}
 }
 
 // Step 2b: Calculate gradient magnitude and direction
