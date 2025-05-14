@@ -1913,6 +1913,564 @@ Mat flip_vertically(Mat src) {
 	return dst;
 }
 
+Mat applyMeanFilter(Mat src) {
+	Mat dst = src.clone();
+	int filter[3][3] = { { 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1 } };
+	for (int i = 1; i < src.rows - 1; i++)
+		for (int j = 1; j < src.cols - 1; j++) {
+			int pixel = 0;
+			for (int k = -1; k <= 1; k++)
+				for (int l = -1; l <= 1; l++)
+					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
+			dst.at<uchar>(i, j) = pixel / 9;
+		}
+	return dst;
+}
+
+Mat applyGaussianFilter(Mat src) {
+	Mat dst = src.clone();
+	int filter[3][3] = { { 1, 2, 1 }, { 2, 4, 2 }, { 1, 2, 1 } };
+	for (int i = 1; i < src.rows - 1; i++)
+		for (int j = 1; j < src.cols - 1; j++) {
+			int pixel = 0;
+			for (int k = -1; k <= 1; k++)
+				for (int l = -1; l <= 1; l++)
+					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
+			pixel /= 16;;
+			dst.at<uchar>(i, j) = pixel;
+		}
+	return dst;
+}
+
+Mat applyLaplaceFilter(Mat src) {
+	Mat dst = src.clone();
+	int filter[3][3] = { {-1, -1, -1 }, { -1, 8, -1 }, { -1, -1, -1 } };
+	for (int i = 1; i < src.rows - 1; i++)
+		for (int j = 1; j < src.cols - 1; j++) {
+			int pixel = 0;
+			for (int k = -1; k <= 1; k++)
+				for (int l = -1; l <= 1; l++)
+					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
+			pixel = pixel / (2 * 8) + 127;
+			dst.at<uchar>(i, j) = pixel;
+		}
+	return dst;
+}
+
+Mat applyHighPassFilter(Mat src) {
+	Mat dst = src.clone();
+	int filter[3][3] = { { -1, -1, -1 }, { -1, 9, -1 }, { -1, -1, -1 } };
+	for (int i = 1; i < src.rows - 1; i++)
+		for (int j = 1; j < src.cols - 1; j++) {
+			int pixel = 0;
+			for (int k = -1; k <= 1; k++)
+				for (int l = -1; l <= 1; l++)
+					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
+			pixel = pixel / (2 * 9) + 127;
+			dst.at<uchar>(i, j) = pixel;
+		}
+	return dst;
+}
+
+void testFilters() {
+	char fname[MAX_PATH];
+
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		imshow("Original image", src);
+
+		Mat mean = applyMeanFilter(src);
+		imshow("Mean Filter", mean);
+
+		Mat gaussian = applyGaussianFilter(src);
+		imshow("Gaussian Filter", gaussian);
+
+		Mat laplace = applyLaplaceFilter(src);
+		imshow("Laplace Filter", laplace);
+
+		Mat highpass = applyHighPassFilter(src);
+		imshow("High Pass Filter", highpass);
+
+		waitKey(0);
+	}
+}
+
+void centering_transform(Mat img) {
+	//expects floating point image
+	for (int i = 0; i < img.rows; i++) {
+		for (int j = 0; j < img.cols; j++) {
+			img.at<float>(i, j) = ((i + j) & 1) ? -img.at<float>(i, j) : img.at<float>(i, j);
+		}
+	}
+}
+
+Mat generic_frequency_domain_filter(Mat src, int mode, int A, int R) {
+	//convert input image to float image
+	Mat srcf;
+	src.convertTo(srcf, CV_32FC1);
+	//centering transformation
+	centering_transform(srcf);
+	//perform forward transform with complex image output
+	Mat fourier;
+	dft(srcf, fourier, DFT_COMPLEX_OUTPUT);
+	//split into real and imaginary channels
+	Mat channels[] = { Mat::zeros(src.size(), CV_32F), Mat::zeros(src.size(), CV_32F) };
+	split(fourier, channels); // channels[0] = Re(DFT(I)), channels[1] = Im(DFT(I))
+	//calculate magnitude and phase in floating point images mag and phi
+	Mat mag, phi;
+	magnitude(channels[0], channels[1], mag);
+	phase(channels[0], channels[1], phi);
+	//display the phase and magnitude images here
+
+	Mat_<float> norm(mag.rows, mag.cols);
+
+	for (int i = 0; i < mag.rows; ++i) {
+		for (int j = 0; j < mag.cols; ++j) {
+			norm.at<float>(i, j) = log(mag.at<float>(i, j) + 1);
+		}
+	}
+
+	normalize(norm, norm, 1, 0, NORM_MINMAX, CV_32F); //Might work as well
+	imshow("Normalized Mag", norm);
+
+	//insert filtering operations on Fourier coefficients here
+	//Gaussian high-pas
+	auto filteredMag = mag;
+	int H = mag.rows;
+	int W = mag.cols;
+
+	if (mode == 1) {
+		for (int i = 0; i < mag.rows; ++i) {
+			for (int j = 0; j < mag.cols; ++j) {
+				filteredMag.at<float>(i, j) = mag.at<float>(i, j) * (1 - (pow(2.718, -(pow((H / 2) - i, 2) + pow((W / 2) - j, 2)) / (A * A))));
+			}
+		}
+	}
+	else if (mode == 0) {
+		//Gaussian low-pas
+		for (int i = 0; i < mag.rows; ++i) {
+			for (int j = 0; j < mag.cols; ++j) {
+				filteredMag.at<float>(i, j) = mag.at<float>(i, j) * ((pow(2.718, -(pow((H / 2) - i, 2) + pow((W / 2) - j, 2)) / (A * A))));
+			}
+		}
+
+	}
+	else if (mode == 2) {
+		//ideal low pass filter
+		for (int i = 0; i < mag.rows; ++i) {
+			for (int j = 0; j < mag.cols; ++j) {
+				auto rez = pow(H / 2 - i, 2) + pow(W / 2 - j, 2);
+				if (rez <= R * R) {
+					filteredMag.at<float>(i, j) = mag.at<float>(i, j);
+				}
+				else {
+					filteredMag.at<float>(i, j) = 0;
+				}
+			}
+		}
+	}
+	else if (mode == 3) {
+		//ideal high pass filter
+		for (int i = 0; i < mag.rows; ++i) {
+			for (int j = 0; j < mag.cols; ++j) {
+				auto rez = pow(H / 2 - i, 2) + pow(W / 2 - j, 2);
+				if (rez > R * R) {
+					filteredMag.at<float>(i, j) = mag.at<float>(i, j);
+				}
+				else {
+					filteredMag.at<float>(i, j) = 0;
+				}
+			}
+		}
+	}
+
+	//store in real part in channels[0] and imaginary part in channels[1]
+	for (int i = 0; i < mag.rows; ++i) {
+		for (int j = 0; j < mag.cols; ++j) {
+			//real part
+			channels[0].at<float>(i, j) = mag.at<float>(i, j) * std::cosf(phi.at<float>(i, j));
+			//imaginary part
+			channels[1].at<float>(i, j) = mag.at<float>(i, j) * std::sinf(phi.at<float>(i, j));
+		}
+	}
+
+	//perform inverse transform and put results in dstf
+	Mat dst, dstf;
+	merge(channels, 2, fourier);
+	dft(fourier, dstf, DFT_INVERSE | DFT_REAL_OUTPUT | DFT_SCALE);
+	//inverse centering transformation
+	centering_transform(dstf);
+	//normalize the result and put in the destination image
+	normalize(dstf, dst, 0, 255, NORM_MINMAX, CV_8UC1);
+	//Note: normalizing distorts the resut while enhancing the image display in the range [0,255].
+	//For exact results (see Practical work 3) the normalization should be replaced with convertion:
+	//dstf.convertTo(dst, CV_8UC1);
+	return dst;
+}
+
+void generic_frequency_domain_filter_test()
+{
+	int A;
+	int R;
+	cout << "A=";
+	cin >> A;
+
+	cout << "R=";
+	cin >> R;
+
+	char fname[MAX_PATH];
+	while (openFileDlg(fname)) {
+		Mat originalImage = imread(fname, IMREAD_GRAYSCALE);
+		Mat lowPass = generic_frequency_domain_filter(originalImage, 0, A, R);
+		Mat highPass = generic_frequency_domain_filter(originalImage, 1, A, R);
+		Mat idealLowPass = generic_frequency_domain_filter(originalImage, 2, A, R);
+		Mat idealHighPass = generic_frequency_domain_filter(originalImage, 3, A, R);
+
+		imshow("Original", originalImage);
+		imshow("Gaussian Low Pass", lowPass);
+		imshow("Gaussian High Pass", highPass);
+		imshow("Ideal Low Pass", idealLowPass);
+		imshow("Ideal High Pass", idealHighPass);
+
+		waitKey();
+	}
+}
+
+Mat medianFilter(Mat src, int w) {
+	Mat dst = src.clone();
+	int n = w * w;
+	int k = w / 2;
+	int* pixel = new int[n];
+	int index = 0;
+
+	for (int i = k; i < src.rows - k; i++) {
+		for (int j= k; j < src.cols - k; j++) {
+			index = 0;
+			for (int l = i - k; l <= i + k; l++)
+				for (int m = j - k; m <= j + k; m++) {
+					pixel[index++] = src.at<uchar>(l, m);
+				}
+			sort(pixel, pixel + n);
+			dst.at<uchar>(i, j) = pixel[n / 2];
+		}
+	}
+
+	delete[] pixel;
+	return dst;
+}
+
+Mat applyGaussianFilter1D(Mat src, int w) {
+	Mat dst = src.clone();
+	int height = src.rows;
+	int width = src.cols;
+
+	double sigma = (double) w / 6.0;
+	int k = w / 2;
+	double* kernel = new double[w];
+	double sum = 0.0;
+
+	for (int i = 0; i < w; i++) {
+		kernel[i] = exp(-(i - k) * (i- k) / (2 * sigma * sigma));
+		sum += kernel[i];
+	}
+	for (int i = 0; i < w; i++) {
+		kernel[i] /= sum;
+	}
+
+	for (int i = 0; i < height; i++) {
+		for (int j = k; j < width - k; j++) {
+			double pixel = 0.0;
+			for (int l = j - k; l <= j + k; l++) {
+				pixel += src.at<uchar>(i, l) * kernel[l - j + k];
+			}
+			dst.at<uchar>(i, j) = pixel;
+		}
+	}
+
+	for (int i = k; i < height - k; i++) {
+		for (int j = 0; j < width; j++) {
+			double pixel = 0.0;
+			for (int l = i - k; l <= i + k; l++) {
+				pixel += dst.at<uchar>(l, j) * kernel[l - i + k];
+			}
+			dst.at<uchar>(i, j) = pixel;
+		}
+	}
+
+	delete[] kernel;
+	return dst;
+}
+
+Mat applyGaussianFilter2D(Mat originalImage, int w)
+{
+	double sigma = (double)w / 6;
+
+	Mat dst = originalImage.clone();
+
+	int k = w / 2;
+	double* kernel = new double[w];
+	double** kernel2D = new double* [w];
+	for (int i = 0; i < w; i++) {
+		kernel2D[i] = new double[w];
+	}
+
+	// Calculate 1D Gaussian kernel
+	double sum = 0.0;
+	for (int i = 0; i < w; ++i) {
+		kernel[i] = exp(-(i - k) * (i - k) / (2 * sigma * sigma));
+		sum += kernel[i];
+	}
+	for (int i = 0; i < w; ++i) {
+		kernel[i] /= sum;
+	}
+
+	// Calculate 2D Gaussian kernel
+	for (int i = 0; i < w; ++i) {
+		for (int j = 0; j < w; ++j) {
+			kernel2D[i][j] = kernel[i] * kernel[j];
+		}
+	}
+
+	int height = originalImage.rows;
+	int width = originalImage.cols;
+
+	// Apply filter
+	for (int i = k; i < height - k; ++i) {
+		for (int j = k; j < width - k; ++j) {
+			double sum = 0.0;
+			for (int ii = i - k, ki = 0; ii <= i + k; ++ii, ++ki) {
+				for (int jj = j - k, kj = 0; jj <= j + k; ++jj, ++kj) {
+					sum += kernel2D[ki][kj] * originalImage.at<uchar>(ii, jj);
+				}
+			}
+			dst.at<uchar>(i, j) = static_cast<uchar>(sum);
+		}
+	}
+
+	for (int i = 0; i < w; i++) {
+		delete[] kernel2D[i];
+	}
+	delete[] kernel;
+	delete[] kernel2D;
+	return dst;
+}
+
+void applyGaussFilters()
+{
+	int w;
+
+	cout << "w=";
+	cin >> w;
+
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		imshow("input image", src);
+
+		double t = (double)getTickCount();
+
+		Mat gauss1d = applyGaussianFilter1D(src, w);
+
+		t = ((double)getTickCount() - t) / getTickFrequency();
+		cout << "Time1 [ms]:" << t * 1000 << endl;
+
+		double t2 = (double)getTickCount();
+
+		Mat gauss2d = applyGaussianFilter2D(src, w);
+
+		t2 = ((double)getTickCount() - t2) / getTickFrequency();
+		cout << "Time2 [ms]:" << t2 * 1000 << endl;
+
+		imshow("gauss1d filter", gauss1d);
+		imshow("gauss2d filter", gauss2d);
+
+		waitKey();
+	}
+}
+
+// Step 1: Apply Gaussian filter with sigma = 0.5
+void applyGaussianFilter(const Mat& src, Mat& dst) {
+	// Create a 3x3 Gaussian kernel with sigma = 0.5
+	Mat kernel = Mat::zeros(3, 3, CV_32F);
+
+	float sigma = 0.5f;
+	float sum = 0.0f;
+
+	// Generate Gaussian kernel
+	for (int i = -1; i <= 1; i++) {
+		for (int j = -1; j <= 1; j++) {
+			kernel.at<float>(i + 1, j + 1) = exp(-(i * i + j * j) / (2 * sigma * sigma));
+			sum += kernel.at<float>(i + 1, j + 1);
+		}
+	}
+
+	// Normalize the kernel
+	kernel /= sum;
+
+	// Apply convolution with the Gaussian kernel
+	filter2D(src, dst, -1, kernel);
+}
+
+// Step 2a: Apply Sobel operators as specified in equation 11.4
+void applySobelOperators(const Mat& src, Mat& gradX, Mat& gradY) {
+	// Define Sobel kernels as shown in the lecture notes (eq. 11.4)
+	Mat sobelX = (Mat_<float>(3, 3) <<
+		-1, 0, 1,
+		-2, 0, 2,
+		-1, 0, 1);
+
+	Mat sobelY = (Mat_<float>(3, 3) <<
+		1, 2, 1,
+		0, 0, 0,
+		-1, -2, -1);
+
+	// Apply convolution without normalization
+	gradX = Mat(src.size(), CV_32F);
+	gradY = Mat(src.size(), CV_32F);
+
+	filter2D(src, gradX, CV_32F, sobelX);
+	filter2D(src, gradY, CV_32F, sobelY);
+}
+
+// Step 2b: Calculate gradient magnitude and direction
+void calculateGradient(const Mat& gradX, const Mat& gradY, Mat& magnitude, Mat& direction) {
+	// Calculate magnitude using eq. 11.6: |∇f(x,y)| = sqrt((∇fx(x,y))² + (∇fy(x,y))²)
+	magnitude = Mat(gradX.size(), CV_32F);
+	direction = Mat(gradX.size(), CV_32F);
+
+	for (int i = 0; i < gradX.rows; i++) {
+		for (int j = 0; j < gradX.cols; j++) {
+			float gx = gradX.at<float>(i, j);
+			float gy = gradY.at<float>(i, j);
+
+			// Calculate magnitude
+			magnitude.at<float>(i, j) = sqrt(gx * gx + gy * gy);
+
+			// Calculate direction
+			float theta = atan2(gy, gx);
+
+			// Adjust to [0, 2π] range
+			if (theta < 0) {
+				theta += 2 * PI;
+			}
+
+			direction.at<float>(i, j) = theta;
+		}
+	}
+
+	// Normalize magnitude to fit [0..255] range by division with 4√2 as specified
+	Mat normalizedMagnitude(magnitude.size(), CV_8UC1);
+	double normalizationFactor = 4.0 * sqrt(2.0);
+
+	for (int i = 0; i < magnitude.rows; i++) {
+		for (int j = 0; j < magnitude.cols; j++) {
+			float normalizedValue = magnitude.at<float>(i, j) / normalizationFactor;
+			normalizedMagnitude.at<uchar>(i, j) = saturate_cast<uchar>(normalizedValue);
+		}
+	}
+
+	magnitude = normalizedMagnitude;
+}
+
+// Step 3: Non-maxima suppression
+void applyNonMaximaSuppression(const Mat& magnitude, const Mat& direction, Mat& result) {
+	result = Mat::zeros(magnitude.size(), CV_8UC1);
+
+	// Process the inner part of the image (excluding borders)
+	for (int i = 1; i < magnitude.rows - 1; i++) {
+		for (int j = 1; j < magnitude.cols - 1; j++) {
+			float angle = direction.at<float>(i, j);
+			int mag = magnitude.at<uchar>(i, j);
+
+			// Skip processing if magnitude is zero
+			if (mag == 0) {
+				continue;
+			}
+
+			// Map angle to one of the 4 directions (0°, 45°, 90°, 135°)
+			int angleDirection;
+
+			// Normalize angle to [0, 180) for edge direction (gradient is perpendicular to edge)
+			angle = fmod(angle, PI);
+
+			// Determine which direction the angle corresponds to
+			if ((angle >= 0 && angle < PI / 8) || (angle >= 7 * PI / 8 && angle < PI)) {
+				angleDirection = 0; // 0° direction - horizontal edge
+			}
+			else if (angle >= PI / 8 && angle < 3 * PI / 8) {
+				angleDirection = 1; // 45° direction - diagonal edge
+			}
+			else if (angle >= 3 * PI / 8 && angle < 5 * PI / 8) {
+				angleDirection = 2; // 90° direction - vertical edge
+			}
+			else {
+				angleDirection = 3; // 135° direction - diagonal edge
+			}
+
+			// Get magnitude values of the pixels in the direction of gradient
+			int mag1 = 0, mag2 = 0;
+
+			// Check neighbors based on direction
+			switch (angleDirection) {
+			case 0: // 0° - horizontal - check east/west
+				mag1 = magnitude.at<uchar>(i, j + 1);
+				mag2 = magnitude.at<uchar>(i, j - 1);
+				break;
+			case 1: // 45° - check northeast/southwest
+				mag1 = magnitude.at<uchar>(i - 1, j + 1);
+				mag2 = magnitude.at<uchar>(i + 1, j - 1);
+				break;
+			case 2: // 90° - vertical - check north/south
+				mag1 = magnitude.at<uchar>(i - 1, j);
+				mag2 = magnitude.at<uchar>(i + 1, j);
+				break;
+			case 3: // 135° - check northwest/southeast
+				mag1 = magnitude.at<uchar>(i - 1, j - 1);
+				mag2 = magnitude.at<uchar>(i + 1, j + 1);
+				break;
+			}
+
+			// Keep only local maxima
+			if (mag >= mag1 && mag >= mag2) {
+				result.at<uchar>(i, j) = mag;
+			}
+		}
+	}
+}
+
+
+void cannyEdgeDetection() {
+	char fname[MAX_PATH];
+	while (openFileDlg(fname)) {
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		imshow("Original Image", src);
+
+		// Step 1: Apply Gaussian filtering with sigma = 0.5
+		Mat gaussianFiltered;
+		applyGaussianFilter(src, gaussianFiltered);
+
+		// Step 2: Compute gradient using Sobel operators
+		Mat gradX, gradY;
+		applySobelOperators(gaussianFiltered, gradX, gradY);
+
+		// Calculate gradient magnitude and direction
+		Mat gradientMagnitude, gradientDirection;
+		calculateGradient(gradX, gradY, gradientMagnitude, gradientDirection);
+
+		// Step 3: Apply non-maxima suppression
+		Mat nonMaxSuppressed;
+		applyNonMaximaSuppression(gradientMagnitude, gradientDirection, nonMaxSuppressed);
+
+		// Display results
+		imshow("Step 1: Gaussian Filtered", gaussianFiltered);
+		imshow("Step 2: Gradient Magnitude", gradientMagnitude);
+		imshow("Step 3: Non-Maxima Suppression", nonMaxSuppressed);
+
+		waitKey(0);
+	}
+}
 
 int main()
 {
@@ -1920,7 +2478,7 @@ int main()
 	projectPath = _wgetcwd(0, 0);
 
 	char fname[MAX_PATH];
-	int n;
+	int n, w;
 
 	int op;
 	do
@@ -1975,8 +2533,11 @@ int main()
 		printf(" 45 - Gamma correction\n");
 		printf(" 46 - Modify brightness\n");
 		printf(" 47 - License Plate Recognition\n");
-		/*printf(" 48 - Image preprocessing\n");
-		printf(" 49 - Plate localization\n");*/
+		printf(" 48 - Apply filters\n");
+		printf(" 49 - Generic frequency domain filter\n");
+		printf(" 50 - Median filter\n");
+		printf(" 51 - Apply Gaussian filter\n");
+		printf(" 52 - Canny Edge Detection\n");
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d", &op);
@@ -2332,18 +2893,33 @@ int main()
 		case 47:
 			recognizeLicensePlate();
 			break;
-		//case 48:
-		//	while (openFileDlg(fname)) {
-		//		Mat src = imread(fname);
-		//		//Mat processed = preprocessImage(src, true);
-		//	}
-		//	break;
-		//case 49:
-		//	while (openFileDlg(fname)) {
-		//		Mat src = imread(fname);
-		//		//vector<RotatedRect> plates = detectLicensePlates(src, true);
-		//	}
-		//	break;
+		case 48:
+			testFilters();
+			break;
+		case 49:
+			generic_frequency_domain_filter_test();
+			break;
+		case 50:
+			printf("Enter the size of the filter: ");
+			scanf("%d", &w);
+			while (openFileDlg(fname))
+			{
+				Mat src = imread(fname, IMREAD_GRAYSCALE);
+				double t = (double)getTickCount();
+				Mat dst = medianFilter(src, w);
+				t = ((double)getTickCount() - t) / getTickFrequency();
+				cout << "Time [ms]:" << t * 1000 << endl;
+				imshow("Original image", src);
+				imshow("After median filtering", dst);
+				waitKey(0);
+			}
+			break;
+		case 51:
+			applyGaussFilters();
+			break;
+		case 52:
+			cannyEdgeDetection();
+			break;
 		}
 	} while (op != 0);
 	return 0;
