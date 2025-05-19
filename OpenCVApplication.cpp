@@ -339,46 +339,29 @@ Mat gray_to_binary(Mat src, int threshold) {
 /* Create a function that will convert a color RGB24 image (CV_8UC3 type) to
 a grayscale image (CV_8UC1) and display the result image in a destination window.
 */
-void RGBtoGray() {
-	char fname[MAX_PATH];
+Mat RGBtoGray(Mat src) {
+	int height = src.rows;
+	int width = src.cols;
 
-	while (openFileDlg(fname))
+	Mat dst(height, width, CV_8UC1);
+
+	for (int i = 0; i < height; i++)
 	{
-		double t = (double)getTickCount(); // Get the current time [s]
-
-		Mat src = imread(fname, IMREAD_COLOR);
-
-		int height = src.rows;
-		int width = src.cols;
-
-		Mat dst(height, width, CV_8UC1);
-
-		for (int i = 0; i < height; i++)
-		{
-			for (int j = 0; j < width; j++) {
-				int result = (src.at<Vec3b>(i, j)[2] + src.at<Vec3b>(i, j)[1] + src.at<Vec3b>(i, j)[0]) / 3;
-				if (result > 255) {
-					dst.at<uchar>(i, j) = 255;
-				}
-				else if (result < 0) {
-					dst.at<uchar>(i, j) = 0;
-				}
-				else {
-					dst.at<uchar>(i, j) = result;
-				}
+		for (int j = 0; j < width; j++) {
+			int result = (src.at<Vec3b>(i, j)[2] + src.at<Vec3b>(i, j)[1] + src.at<Vec3b>(i, j)[0]) / 3;
+			if (result > 255) {
+				dst.at<uchar>(i, j) = 255;
+			}
+			else if (result < 0) {
+				dst.at<uchar>(i, j) = 0;
+			}
+			else {
+				dst.at<uchar>(i, j) = result;
 			}
 		}
-
-		// Get the current time again and compute the time difference [s]
-		t = ((double)getTickCount() - t) / getTickFrequency();
-		// Print (in the console window) the processing time in [ms] 
-		printf("Time = %.3f [ms]\n", t * 1000);
-
-		imshow("input image", src);
-		imshow("grayscale image", dst);
-
-		waitKey();
 	}
+
+	return dst;
 }
 
 /*  Create a function that will compute the H, S and V values from the R, G, B channels of an image.
@@ -2727,6 +2710,7 @@ int main()
 		printf(" 50 - Median filter\n");
 		printf(" 51 - Apply Gaussian filter\n");
 		printf(" 52 - Canny Edge Detection\n");
+		printf(" 53 - Evaluate plate detection\n");
 		printf(" 0  - Exit\n\n");
 		printf("Option: ");
 		scanf("%d", &op);
@@ -2790,7 +2774,13 @@ int main()
 			getRGB();
 			break;
 		case 18:
-			RGBtoGray();
+			while (openFileDlg(fname)) {
+				Mat src = imread(fname, IMREAD_COLOR);
+				imshow("Original image", src);
+				Mat dst = RGBtoGray(src);
+				imshow("Grayscale image", dst);
+				waitKey(0);
+			}
 			break;
 		case 19:
 			int threshold;
@@ -3108,6 +3098,12 @@ int main()
 			break;
 		case 52:
 			cannyEdgeDetection();
+			break;
+		case 53:
+			cout << "Starting license plate detection evaluation..." << endl;
+			evaluatePlateDetection();
+			cout << "Evaluation complete." << endl;
+			system("pause");
 			break;
 		}
 	} while (op != 0);
