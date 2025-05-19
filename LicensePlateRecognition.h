@@ -3,3 +3,4 @@
 #include <string>
 
 void recognizeLicensePlate();
+void evaluatePlateDetection();
