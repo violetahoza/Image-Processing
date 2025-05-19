@@ -2489,6 +2489,134 @@ void applyNonMaximaSuppression(const Mat& magnitude, const Mat& direction, Mat& 
 	}
 }
 
+// Step 4a: Adaptive thresholding
+void adaptiveThresholding(const Mat& nonMaxSuppressed, Mat& thresholded) {
+	// Create histogram of gradient magnitudes
+	int histogram[256] = { 0 };
+	int zeroGradientPixels = 0;
+
+	// Calculate histogram and count zero gradient pixels
+	for (int i = 1; i < nonMaxSuppressed.rows - 1; i++) {
+		for (int j = 1; j < nonMaxSuppressed.cols - 1; j++) {
+			int pixelValue = nonMaxSuppressed.at<uchar>(i, j);
+			histogram[pixelValue]++;
+
+			if (pixelValue == 0) {
+				zeroGradientPixels++;
+			}
+		}
+	}
+
+	// Calculate the number of non-zero gradient pixels
+	int totalPixels = (nonMaxSuppressed.rows - 2) * (nonMaxSuppressed.cols - 2);
+	int nonZeroPixels = totalPixels - zeroGradientPixels;
+
+	// We assume 10% of the non-zero gradient pixels are edge pixels
+	float p = 0.1;
+	int nonEdgePixels = (1 - p) * nonZeroPixels;
+
+	// Find ThresholdHigh by counting from the histogram
+	int sum = 0;
+	int thresholdHigh = 0;
+
+	for (int i = 1; i < 256; i++) {
+		sum += histogram[i];
+		if (sum > nonEdgePixels) {
+			thresholdHigh = i;
+			break;
+		}
+	}
+
+	// Calculate ThresholdLow as 40% of ThresholdHigh
+	float k = 0.4;
+	int thresholdLow = k * thresholdHigh;
+
+	// Apply thresholding to categorize pixels
+	thresholded = Mat::zeros(nonMaxSuppressed.size(), CV_8UC1);
+
+	// Define edge categories
+	const uchar NO_EDGE = 0;
+	const uchar WEAK_EDGE = 128;
+	const uchar STRONG_EDGE = 255;
+
+	for (int i = 0; i < nonMaxSuppressed.rows; i++) {
+		for (int j = 0; j < nonMaxSuppressed.cols; j++) {
+			int pixelValue = nonMaxSuppressed.at<uchar>(i, j);
+
+			if (pixelValue < thresholdLow) {
+				thresholded.at<uchar>(i, j) = NO_EDGE;
+			}
+			else if (pixelValue >= thresholdLow && pixelValue <= thresholdHigh) {
+				thresholded.at<uchar>(i, j) = WEAK_EDGE;
+			}
+			else {
+				thresholded.at<uchar>(i, j) = STRONG_EDGE;
+			}
+		}
+	}
+}
+
+// Step 4b: Edge linking through hysteresis
+void edgeLinkingHysteresis(Mat& thresholded) {
+	const uchar NO_EDGE = 0;
+	const uchar WEAK_EDGE = 128;
+	const uchar STRONG_EDGE = 255;
+
+	// Queue for storing STRONG_EDGE points
+	queue<Point> edgeQueue;
+
+	// Create a copy of the thresholded image
+	Mat result = thresholded.clone();
+
+	// Scan the image to find STRONG_EDGE points
+	for (int i = 1; i < thresholded.rows - 1; i++) {
+		for (int j = 1; j < thresholded.cols - 1; j++) {
+			if (thresholded.at<uchar>(i, j) == STRONG_EDGE) {
+				// Found a STRONG_EDGE point, process it
+				edgeQueue.push(Point(j, i));
+
+				// Process the queue
+				while (!edgeQueue.empty()) {
+					Point p = edgeQueue.front();
+					edgeQueue.pop();
+
+					// Check all 8 neighbors
+					for (int ni = -1; ni <= 1; ni++) {
+						for (int nj = -1; nj <= 1; nj++) {
+							// Skip the center point
+							if (ni == 0 && nj == 0) {
+								continue;
+							}
+
+							int newY = p.y + ni;
+							int newX = p.x + nj;
+
+							// Check if the neighbor is within the image boundaries
+							if (newY >= 1 && newY < thresholded.rows - 1 &&
+								newX >= 1 && newX < thresholded.cols - 1) {
+
+								// If it's a WEAK_EDGE, convert it to STRONG_EDGE and add to queue
+								if (thresholded.at<uchar>(newY, newX) == WEAK_EDGE) {
+									thresholded.at<uchar>(newY, newX) = STRONG_EDGE;
+									edgeQueue.push(Point(newX, newY));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Remove remaining WEAK_EDGE points by setting them to NO_EDGE
+	for (int i = 0; i < thresholded.rows; i++) {
+		for (int j = 0; j < thresholded.cols; j++) {
+			if (thresholded.at<uchar>(i, j) == WEAK_EDGE) {
+				thresholded.at<uchar>(i, j) = NO_EDGE;
+			}
+		}
+	}
+}
 
 void cannyEdgeDetection() {
 	char fname[MAX_PATH];
@@ -2512,10 +2640,22 @@ void cannyEdgeDetection() {
 		Mat nonMaxSuppressed;
 		applyNonMaximaSuppression(gradientMagnitude, gradientDirection, nonMaxSuppressed);
 
+		// Step 4a: Apply adaptive thresholding
+		Mat thresholded;
+		adaptiveThresholding(nonMaxSuppressed, thresholded);
+
+		// Save a copy for display
+		Mat afterThresholding = thresholded.clone();
+
+		// Step 4b: Apply edge linking through hysteresis
+		edgeLinkingHysteresis(thresholded);
+
 		// Display results
 		imshow("Step 1: Gaussian Filtered", gaussianFiltered);
 		imshow("Step 2: Gradient Magnitude", gradientMagnitude);
 		imshow("Step 3: Non-Maxima Suppression", nonMaxSuppressed);
+		imshow("Step 4a: After Adaptive Thresholding", afterThresholding);
+		imshow("Step 4b: Final Edges after Hysteresis", thresholded);
 
 		waitKey(0);
 	}
