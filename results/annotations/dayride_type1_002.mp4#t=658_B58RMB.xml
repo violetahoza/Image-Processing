@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_002.mp4#t=658_B58RMB.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>170</xmin>
+      <ymin>446</ymin>
+      <xmax>287</xmax>
+      <ymax>476</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>B58RMB</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

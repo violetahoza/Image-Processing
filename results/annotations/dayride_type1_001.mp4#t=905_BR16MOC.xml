@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_001.mp4#t=905_BR16MOC.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>217</xmin>
+      <ymin>454</ymin>
+      <xmax>345</xmax>
+      <ymax>484</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>BR16MOC</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>nightride_type3_001.mp4#t=51_B276WOW.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>543</xmin>
+      <ymin>372</ymin>
+      <xmax>773</xmax>
+      <ymax>437</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>B276WOW</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

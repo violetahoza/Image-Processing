@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_001.mp4#t=769_BR07AAC.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>519</xmin>
+      <ymin>455</ymin>
+      <xmax>795</xmax>
+      <ymax>532</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>BR07AAC</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

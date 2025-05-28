@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>nightride_type3_001.mp4#t=311_B52CNW.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>598</xmin>
+      <ymin>425</ymin>
+      <xmax>732</xmax>
+      <ymax>458</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>B52CNW</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

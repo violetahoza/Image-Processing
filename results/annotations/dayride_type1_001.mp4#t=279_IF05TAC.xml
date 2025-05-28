@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_001.mp4#t=279_IF05TAC.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>828</xmin>
+      <ymin>464</ymin>
+      <xmax>948</xmax>
+      <ymax>495</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>IF05TAC</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

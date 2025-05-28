@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_002.mp4#t=650_B98LPM.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>696</xmin>
+      <ymin>653</ymin>
+      <xmax>874</xmax>
+      <ymax>703</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>B98LPM</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

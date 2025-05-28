@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_003.mp4#t=121_DB48SCF.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>698</xmin>
+      <ymin>496</ymin>
+      <xmax>817</xmax>
+      <ymax>523</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>DB48SCF</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>

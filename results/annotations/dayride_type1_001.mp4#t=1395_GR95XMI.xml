@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+  <filename>dayride_type1_001.mp4#t=1395_GR95XMI.jpg</filename>
+  <size>
+    <width>1280</width>
+    <height>720</height>
+    <depth>3</depth>
+  </size>
+  <object>
+    <name>license-plate</name>
+    <bndbox>
+      <xmin>507</xmin>
+      <ymin>500</ymin>
+      <xmax>665</xmax>
+      <ymax>554</ymax>
+    </bndbox>
+    <attributes>
+      <attribute>
+        <name>text</name>
+        <value>GR95XMI</value>
+      </attribute>
+    </attributes>
+  </object>
+</annotation>
