@@ -1896,60 +1896,44 @@ Mat flip_vertically(Mat src) {
 	return dst;
 }
 
-Mat applyMeanFilter(Mat src) {
+Mat applyLowPassFilter(Mat src, int kernel[3][3]) {
 	Mat dst = src.clone();
-	int filter[3][3] = { { 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1 } };
+	int kernelSum = 0;
+
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			kernelSum += kernel[i][j];
+
 	for (int i = 1; i < src.rows - 1; i++)
 		for (int j = 1; j < src.cols - 1; j++) {
 			int pixel = 0;
 			for (int k = -1; k <= 1; k++)
 				for (int l = -1; l <= 1; l++)
-					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
-			dst.at<uchar>(i, j) = pixel / 9;
+					pixel += src.at<uchar>(i + k, j + l) * kernel[k + 1][l + 1];
+			dst.at<uchar>(i, j) = pixel / kernelSum;
 		}
 	return dst;
 }
 
-Mat applyGaussianFilter(Mat src) {
+Mat applyHighPassFilter(Mat src, int kernel[3][3]) {
 	Mat dst = src.clone();
-	int filter[3][3] = { { 1, 2, 1 }, { 2, 4, 2 }, { 1, 2, 1 } };
-	for (int i = 1; i < src.rows - 1; i++)
-		for (int j = 1; j < src.cols - 1; j++) {
-			int pixel = 0;
-			for (int k = -1; k <= 1; k++)
-				for (int l = -1; l <= 1; l++)
-					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
-			pixel /= 16;;
-			dst.at<uchar>(i, j) = pixel;
-		}
-	return dst;
-}
+	int sminus = 0, splus = 0, smax = 0;
 
-Mat applyLaplaceFilter(Mat src) {
-	Mat dst = src.clone();
-	int filter[3][3] = { {-1, -1, -1 }, { -1, 8, -1 }, { -1, -1, -1 } };
-	for (int i = 1; i < src.rows - 1; i++)
-		for (int j = 1; j < src.cols - 1; j++) {
-			int pixel = 0;
-			for (int k = -1; k <= 1; k++)
-				for (int l = -1; l <= 1; l++)
-					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
-			pixel = pixel / (2 * 8) + 127;
-			dst.at<uchar>(i, j) = pixel;
-		}
-	return dst;
-}
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			if (kernel[i][j] < 0)
+				sminus += kernel[i][j];
+			else splus += kernel[i][j];
 
-Mat applyHighPassFilter(Mat src) {
-	Mat dst = src.clone();
-	int filter[3][3] = { { -1, -1, -1 }, { -1, 9, -1 }, { -1, -1, -1 } };
+	smax = max(abs(splus), abs(sminus));
+
 	for (int i = 1; i < src.rows - 1; i++)
 		for (int j = 1; j < src.cols - 1; j++) {
 			int pixel = 0;
 			for (int k = -1; k <= 1; k++)
 				for (int l = -1; l <= 1; l++)
-					pixel += src.at<uchar>(i + k, j + l) * filter[k + 1][l + 1];
-			pixel = pixel / (2 * 9) + 127;
+					pixel += src.at<uchar>(i + k, j + l) * kernel[k + 1][l + 1];
+			pixel = pixel / (2 * smax) + 127;
 			dst.at<uchar>(i, j) = pixel;
 		}
 	return dst;
@@ -1963,16 +1947,37 @@ void testFilters() {
 		Mat src = imread(fname, IMREAD_GRAYSCALE);
 		imshow("Original image", src);
 
-		Mat mean = applyMeanFilter(src);
+		int meanKernel[3][3] = {
+			{1, 1, 1},
+			{1, 1, 1},
+			{1, 1, 1}
+		};
+
+		Mat mean = applyLowPassFilter(src, meanKernel);
 		imshow("Mean Filter", mean);
 
-		Mat gaussian = applyGaussianFilter(src);
+		int gaussianKernel[3][3] = {
+			{1, 2, 1},
+			{2, 4, 2},
+			{1, 2, 1}
+		};
+		Mat gaussian = applyLowPassFilter(src, gaussianKernel);
 		imshow("Gaussian Filter", gaussian);
 
-		Mat laplace = applyLaplaceFilter(src);
+		int laplaceKernel[3][3] = {
+			{0, -1, 0},
+			{-1, 4, -1},
+			{0, -1, 0}
+		};
+		Mat laplace = applyHighPassFilter(src, laplaceKernel);
 		imshow("Laplace Filter", laplace);
 
-		Mat highpass = applyHighPassFilter(src);
+		int kernel[3][3] = {
+			{-1, -1, -1},
+			{-1, 9, -1},
+			{-1, -1, -1}
+		};
+		Mat highpass = applyHighPassFilter(src, kernel);
 		imshow("High Pass Filter", highpass);
 
 		waitKey(0);
@@ -2513,6 +2518,7 @@ void adaptiveThresholding(const Mat& nonMaxSuppressed, Mat& thresholded) {
 	// Calculate ThresholdLow as 40% of ThresholdHigh
 	float k = 0.4;
 	int thresholdLow = k * thresholdHigh;
+	cout << "Threshold low:  " << thresholdLow << " , Threshold high: " << thresholdHigh << endl;
 
 	// Apply thresholding to categorize pixels
 	thresholded = Mat::zeros(nonMaxSuppressed.size(), CV_8UC1);
@@ -3107,5 +3113,6 @@ int main()
 			break;
 		}
 	} while (op != 0);
+
 	return 0;
 }
