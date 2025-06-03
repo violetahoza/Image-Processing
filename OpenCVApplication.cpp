@@ -2149,6 +2149,7 @@ Mat medianFilter(Mat src, int w) {
 }
 
 Mat applyGaussianFilter1D(Mat src, int w) {
+	Mat temp = src.clone();
 	Mat dst = src.clone();
 	int height = src.rows;
 	int width = src.cols;
@@ -2158,29 +2159,34 @@ Mat applyGaussianFilter1D(Mat src, int w) {
 	double* kernel = new double[w];
 	double sum = 0.0;
 
+	// create the 1D Gaussian kernel
 	for (int i = 0; i < w; i++) {
-		kernel[i] = exp(-(i - k) * (i- k) / (2 * sigma * sigma));
+		kernel[i] = exp(-(i - k) * (i- k) / (2 * sigma * sigma)) * (1.0 / (sqrt(2.0 * PI) * sigma));
 		sum += kernel[i];
 	}
+
+	// normalize the kernel
 	for (int i = 0; i < w; i++) {
 		kernel[i] /= sum;
 	}
 
+	// horizontal convolution
 	for (int i = 0; i < height; i++) {
 		for (int j = k; j < width - k; j++) {
 			double pixel = 0.0;
 			for (int l = j - k; l <= j + k; l++) {
 				pixel += src.at<uchar>(i, l) * kernel[l - j + k];
 			}
-			dst.at<uchar>(i, j) = pixel;
+			temp.at<uchar>(i, j) = pixel;
 		}
 	}
 
+	// vertical convolution
 	for (int i = k; i < height - k; i++) {
 		for (int j = 0; j < width; j++) {
 			double pixel = 0.0;
 			for (int l = i - k; l <= i + k; l++) {
-				pixel += dst.at<uchar>(l, j) * kernel[l - i + k];
+				pixel += temp.at<uchar>(l, j) * kernel[l - i + k];
 			}
 			dst.at<uchar>(i, j) = pixel;
 		}
@@ -2192,47 +2198,47 @@ Mat applyGaussianFilter1D(Mat src, int w) {
 
 Mat applyGaussianFilter2D(Mat originalImage, int w)
 {
-	double sigma = (double)w / 6;
-
 	Mat dst = originalImage.clone();
+	int height = originalImage.rows;
+	int width = originalImage.cols;
 
+	double sigma = (double)w / 6, sum = 0.0;
 	int k = w / 2;
 	double* kernel = new double[w];
 	double** kernel2D = new double* [w];
+
 	for (int i = 0; i < w; i++) {
 		kernel2D[i] = new double[w];
 	}
 
-	// Calculate 1D Gaussian kernel
-	double sum = 0.0;
-	for (int i = 0; i < w; ++i) {
-		kernel[i] = exp(-(i - k) * (i - k) / (2 * sigma * sigma));
-		sum += kernel[i];
-	}
-	for (int i = 0; i < w; ++i) {
-		kernel[i] /= sum;
-	}
-
-	// Calculate 2D Gaussian kernel
-	for (int i = 0; i < w; ++i) {
-		for (int j = 0; j < w; ++j) {
-			kernel2D[i][j] = kernel[i] * kernel[j];
+	// generate 2D Gaussian kernel 
+	for (int i = 0; i < w; i++) {
+		for (int j = 0; j < w; j++) {
+			int x = i - k;  
+			int y = j - k; 
+			kernel2D[i][j] = (1.0 / (2.0 * PI * sigma * sigma)) *
+				exp(-((x * x + y * y) / (2.0 * sigma * sigma)));
+			sum += kernel2D[i][j];
 		}
 	}
 
-	int height = originalImage.rows;
-	int width = originalImage.cols;
+	// normalize kernel 
+	for (int i = 0; i < w; i++) {
+		for (int j = 0; j < w; j++) {
+			kernel2D[i][j] /= sum;
+		}
+	}
 
-	// Apply filter
+	// apply convolution
 	for (int i = k; i < height - k; ++i) {
 		for (int j = k; j < width - k; ++j) {
-			double sum = 0.0;
+			double pixelSum = 0.0;
 			for (int ii = i - k, ki = 0; ii <= i + k; ++ii, ++ki) {
 				for (int jj = j - k, kj = 0; jj <= j + k; ++jj, ++kj) {
-					sum += kernel2D[ki][kj] * originalImage.at<uchar>(ii, jj);
+					pixelSum += kernel2D[ki][kj] * originalImage.at<uchar>(ii, jj);
 				}
 			}
-			dst.at<uchar>(i, j) = static_cast<uchar>(sum);
+			dst.at<uchar>(i, j) = static_cast<uchar>(pixelSum);
 		}
 	}
 
@@ -2257,12 +2263,12 @@ void applyGaussFilters()
 		Mat src = imread(fname, IMREAD_GRAYSCALE);
 		imshow("input image", src);
 
-		double t = (double)getTickCount();
+		double t1 = (double)getTickCount();
 
 		Mat gauss1d = applyGaussianFilter1D(src, w);
 
-		t = ((double)getTickCount() - t) / getTickFrequency();
-		cout << "Time1 [ms]:" << t * 1000 << endl;
+		t1 = ((double)getTickCount() - t1) / getTickFrequency();
+		cout << "Time1 [ms]:" << t1 * 1000 << endl;
 
 		double t2 = (double)getTickCount();
 
