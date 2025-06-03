@@ -2284,63 +2284,7 @@ void applyGaussFilters()
 	}
 }
 
-// Step 1: Apply Gaussian filter with sigma = 0.5
-void applyGaussianFilter(const Mat& src, Mat& dst) {
-	// Create a 3x3 Gaussian kernel with sigma = 0.5
-	Mat kernel = Mat::zeros(3, 3, CV_32F);
-
-	float sigma = 0.5f;
-	float sum = 0.0f;
-
-	// Generate Gaussian kernel
-	for (int i = -1; i <= 1; i++) {
-		for (int j = -1; j <= 1; j++) {
-			kernel.at<float>(i + 1, j + 1) = exp(-(i * i + j * j) / (2 * sigma * sigma));
-			sum += kernel.at<float>(i + 1, j + 1);
-		}
-	}
-
-	// Normalize the kernel
-	kernel /= sum;
-
-	// Apply custom convolution with the Gaussian kernel
-	dst = Mat(src.rows, src.cols, src.type());
-
-	int kRows = kernel.rows;
-	int kCols = kernel.cols;
-	int kCenterX = kCols / 2;
-	int kCenterY = kRows / 2;
-
-	for (int i = 0; i < src.rows; i++) {
-		for (int j = 0; j < src.cols; j++) {
-			float sum = 0.0;
-
-			// Apply convolution
-			for (int m = 0; m < kRows; m++) {
-				int mm = kRows - 1 - m;  // Flip the kernel
-
-				for (int n = 0; n < kCols; n++) {
-					int nn = kCols - 1 - n;  // Flip the kernel
-
-					// Get the corresponding pixel from the input image
-					int ii = i + (m - kCenterY);
-					int jj = j + (n - kCenterX);
-
-					// Check if pixel is inside the image boundaries
-					if (ii >= 0 && ii < src.rows && jj >= 0 && jj < src.cols) {
-						sum += src.at<uchar>(ii, jj) * kernel.at<float>(mm, nn);
-					}
-				}
-			}
-
-			dst.at<uchar>(i, j) = saturate_cast<uchar>(sum);
-		}
-	}
-}
-
-// Step 2a: Apply Sobel operators as specified in equation 11.4
 void applySobelOperators(const Mat& src, Mat& gradX, Mat& gradY) {
-	// Define Sobel kernels as shown in the lecture notes (eq. 11.4)
 	Mat sobelX = (Mat_<float>(3, 3) <<
 		-1, 0, 1,
 		-2, 0, 2,
@@ -2351,17 +2295,14 @@ void applySobelOperators(const Mat& src, Mat& gradX, Mat& gradY) {
 		0, 0, 0,
 		-1, -2, -1);
 
-	// Apply convolution without normalization
 	gradX = Mat(src.size(), CV_32F);
 	gradY = Mat(src.size(), CV_32F);
 
-	// Apply convolution for each pixel
 	for (int i = 1; i < src.rows - 1; i++) {
 		for (int j = 1; j < src.cols - 1; j++) {
 			float sumX = 0.0f;
 			float sumY = 0.0f;
 
-			// Apply convolution with Sobel kernels
 			for (int m = -1; m <= 1; m++) {
 				for (int n = -1; n <= 1; n++) {
 					float pixelValue = static_cast<float>(src.at<uchar>(i + m, j + n));
@@ -2370,16 +2311,13 @@ void applySobelOperators(const Mat& src, Mat& gradX, Mat& gradY) {
 				}
 			}
 
-			// Store the result without normalization
 			gradX.at<float>(i, j) = sumX;
 			gradY.at<float>(i, j) = sumY;
 		}
 	}
 }
 
-// Step 2b: Calculate gradient magnitude and direction
 void calculateGradient(const Mat& gradX, const Mat& gradY, Mat& magnitude, Mat& direction) {
-	// Calculate magnitude using eq. 11.6: |∇f(x,y)| = sqrt((∇fx(x,y))² + (∇fy(x,y))²)
 	magnitude = Mat(gradX.size(), CV_32F);
 	direction = Mat(gradX.size(), CV_32F);
 
@@ -2388,13 +2326,9 @@ void calculateGradient(const Mat& gradX, const Mat& gradY, Mat& magnitude, Mat& 
 			float gx = gradX.at<float>(i, j);
 			float gy = gradY.at<float>(i, j);
 
-			// Calculate magnitude
 			magnitude.at<float>(i, j) = sqrt(gx * gx + gy * gy);
-
-			// Calculate direction
 			float theta = atan2(gy, gx);
 
-			// Adjust to [0, 2π] range
 			if (theta < 0) {
 				theta += 2 * PI;
 			}
@@ -2403,7 +2337,6 @@ void calculateGradient(const Mat& gradX, const Mat& gradY, Mat& magnitude, Mat& 
 		}
 	}
 
-	// Normalize magnitude to fit [0..255] range by division with 4√2 as specified
 	Mat normalizedMagnitude(magnitude.size(), CV_8UC1);
 	double normalizationFactor = 4.0 * sqrt(2.0);
 
@@ -2417,28 +2350,21 @@ void calculateGradient(const Mat& gradX, const Mat& gradY, Mat& magnitude, Mat& 
 	magnitude = normalizedMagnitude;
 }
 
-// Step 3: Non-maxima suppression
 void applyNonMaximaSuppression(const Mat& magnitude, const Mat& direction, Mat& result) {
 	result = Mat::zeros(magnitude.size(), CV_8UC1);
 
-	// Process the inner part of the image (excluding borders)
 	for (int i = 1; i < magnitude.rows - 1; i++) {
 		for (int j = 1; j < magnitude.cols - 1; j++) {
 			float angle = direction.at<float>(i, j);
 			int mag = magnitude.at<uchar>(i, j);
 
-			// Skip processing if magnitude is zero
 			if (mag == 0) {
 				continue;
 			}
 
-			// Map angle to one of the 4 directions (0°, 45°, 90°, 135°)
 			int angleDirection;
-
-			// Normalize angle to [0, 180) for edge direction (gradient is perpendicular to edge)
 			angle = fmod(angle, PI);
 
-			// Determine which direction the angle corresponds to
 			if ((angle >= 0 && angle < PI / 8) || (angle >= 7 * PI / 8 && angle < PI)) {
 				angleDirection = 0; // 0° direction - horizontal edge
 			}
@@ -2452,10 +2378,8 @@ void applyNonMaximaSuppression(const Mat& magnitude, const Mat& direction, Mat& 
 				angleDirection = 3; // 135° direction - diagonal edge
 			}
 
-			// Get magnitude values of the pixels in the direction of gradient
 			int mag1 = 0, mag2 = 0;
 
-			// Check neighbors based on direction
 			switch (angleDirection) {
 			case 0: // 0° - horizontal - check east/west
 				mag1 = magnitude.at<uchar>(i, j + 1);
@@ -2475,7 +2399,6 @@ void applyNonMaximaSuppression(const Mat& magnitude, const Mat& direction, Mat& 
 				break;
 			}
 
-			// Keep only local maxima
 			if (mag >= mag1 && mag >= mag2) {
 				result.at<uchar>(i, j) = mag;
 			}
@@ -2483,13 +2406,14 @@ void applyNonMaximaSuppression(const Mat& magnitude, const Mat& direction, Mat& 
 	}
 }
 
-// Step 4a: Adaptive thresholding
+const uchar NO_EDGE = 0;
+const uchar WEAK_EDGE = 128;
+const uchar STRONG_EDGE = 255;
+
 void adaptiveThresholding(const Mat& nonMaxSuppressed, Mat& thresholded) {
-	// Create histogram of gradient magnitudes
 	int histogram[256] = { 0 };
 	int zeroGradientPixels = 0;
 
-	// Calculate histogram and count zero gradient pixels
 	for (int i = 1; i < nonMaxSuppressed.rows - 1; i++) {
 		for (int j = 1; j < nonMaxSuppressed.cols - 1; j++) {
 			int pixelValue = nonMaxSuppressed.at<uchar>(i, j);
@@ -2501,15 +2425,12 @@ void adaptiveThresholding(const Mat& nonMaxSuppressed, Mat& thresholded) {
 		}
 	}
 
-	// Calculate the number of non-zero gradient pixels
 	int totalPixels = (nonMaxSuppressed.rows - 2) * (nonMaxSuppressed.cols - 2);
 	int nonZeroPixels = totalPixels - zeroGradientPixels;
 
-	// We assume 10% of the non-zero gradient pixels are edge pixels
 	float p = 0.1;
 	int nonEdgePixels = (1 - p) * nonZeroPixels;
 
-	// Find ThresholdHigh by counting from the histogram
 	int sum = 0;
 	int thresholdHigh = 0;
 
@@ -2521,18 +2442,11 @@ void adaptiveThresholding(const Mat& nonMaxSuppressed, Mat& thresholded) {
 		}
 	}
 
-	// Calculate ThresholdLow as 40% of ThresholdHigh
 	float k = 0.4;
 	int thresholdLow = k * thresholdHigh;
 	cout << "Threshold low:  " << thresholdLow << " , Threshold high: " << thresholdHigh << endl;
 
-	// Apply thresholding to categorize pixels
 	thresholded = Mat::zeros(nonMaxSuppressed.size(), CV_8UC1);
-
-	// Define edge categories
-	const uchar NO_EDGE = 0;
-	const uchar WEAK_EDGE = 128;
-	const uchar STRONG_EDGE = 255;
 
 	for (int i = 0; i < nonMaxSuppressed.rows; i++) {
 		for (int j = 0; j < nonMaxSuppressed.cols; j++) {
@@ -2551,34 +2465,22 @@ void adaptiveThresholding(const Mat& nonMaxSuppressed, Mat& thresholded) {
 	}
 }
 
-// Step 4b: Edge linking through hysteresis
 void edgeLinkingHysteresis(Mat& thresholded) {
-	const uchar NO_EDGE = 0;
-	const uchar WEAK_EDGE = 128;
-	const uchar STRONG_EDGE = 255;
-
-	// Queue for storing STRONG_EDGE points
 	queue<Point> edgeQueue;
 
-	// Create a copy of the thresholded image
 	Mat result = thresholded.clone();
 
-	// Scan the image to find STRONG_EDGE points
 	for (int i = 1; i < thresholded.rows - 1; i++) {
 		for (int j = 1; j < thresholded.cols - 1; j++) {
 			if (thresholded.at<uchar>(i, j) == STRONG_EDGE) {
-				// Found a STRONG_EDGE point, process it
 				edgeQueue.push(Point(j, i));
 
-				// Process the queue
 				while (!edgeQueue.empty()) {
 					Point p = edgeQueue.front();
 					edgeQueue.pop();
 
-					// Check all 8 neighbors
 					for (int ni = -1; ni <= 1; ni++) {
 						for (int nj = -1; nj <= 1; nj++) {
-							// Skip the center point
 							if (ni == 0 && nj == 0) {
 								continue;
 							}
@@ -2586,11 +2488,9 @@ void edgeLinkingHysteresis(Mat& thresholded) {
 							int newY = p.y + ni;
 							int newX = p.x + nj;
 
-							// Check if the neighbor is within the image boundaries
 							if (newY >= 1 && newY < thresholded.rows - 1 &&
 								newX >= 1 && newX < thresholded.cols - 1) {
 
-								// If it's a WEAK_EDGE, convert it to STRONG_EDGE and add to queue
 								if (thresholded.at<uchar>(newY, newX) == WEAK_EDGE) {
 									thresholded.at<uchar>(newY, newX) = STRONG_EDGE;
 									edgeQueue.push(Point(newX, newY));
@@ -2603,7 +2503,6 @@ void edgeLinkingHysteresis(Mat& thresholded) {
 		}
 	}
 
-	// Remove remaining WEAK_EDGE points by setting them to NO_EDGE
 	for (int i = 0; i < thresholded.rows; i++) {
 		for (int j = 0; j < thresholded.cols; j++) {
 			if (thresholded.at<uchar>(i, j) == WEAK_EDGE) {
@@ -2620,8 +2519,7 @@ void cannyEdgeDetection() {
 		imshow("Original Image", src);
 
 		// Step 1: Apply Gaussian filtering with sigma = 0.5
-		Mat gaussianFiltered;
-		applyGaussianFilter(src, gaussianFiltered);
+		Mat gaussianFiltered = applyGaussianFilter2D(src, 3);
 
 		// Step 2: Compute gradient using Sobel operators
 		Mat gradX, gradY;
@@ -2639,13 +2537,11 @@ void cannyEdgeDetection() {
 		Mat thresholded;
 		adaptiveThresholding(nonMaxSuppressed, thresholded);
 
-		// Save a copy for display
 		Mat afterThresholding = thresholded.clone();
 
 		// Step 4b: Apply edge linking through hysteresis
 		edgeLinkingHysteresis(thresholded);
 
-		// Display results
 		imshow("Step 1: Gaussian Filtered", gaussianFiltered);
 		imshow("Step 2: Gradient Magnitude", gradientMagnitude);
 		imshow("Step 3: Non-Maxima Suppression", nonMaxSuppressed);
